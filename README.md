@@ -11,6 +11,14 @@ tile-owned facets as the sphere turns.
 Space commits a word, Enter advances the writing line, and scrolling over the
 ball rotates it horizontally.
 
+## Live
+
+[Open the production prototype](https://prod-main-disco-type-web-fac5a0-0034ssnv2d3.compute.instacloud-edge.com)
+
+## Typing demo
+
+[Watch the five-second typing demo](assets/demo/disco-type-typing.mp4)
+
 ## Run locally
 
 Open `index.html` in a modern browser.
