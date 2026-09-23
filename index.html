@@ -1,0 +1,4811 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08090b">
+  <title>Type / Disco — 3D Word Instrument</title>
+  <style>
+    /* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio.
+       Put this @layer first; product CSS outside the layer always wins. */
+    @layer od-layout {
+      :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+      /* containers */
+      .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+      .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+      .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+      .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+      .od-fill    { flex: 1 1 0; min-width: 0; }
+      .od-fixed   { flex: none; }
+      .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+      /* stacked information: each piece is its own line — never sibling inline spans */
+      .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+      :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+      .od-tile { display: grid; grid-template-rows: auto 1fr; }
+      :where(.od-tile) > :where(*) { display: block; }
+
+      /* media keeps its intrinsic ratio by default; never a distorted or cropped
+         cover by accident. height:auto lets the ratio win over an <img height="…">
+         attribute. Cropping to a uniform box is an explicit opt-in: set --od-ratio
+         AND add .od-media-cover together (per the core rule, only where a crop is
+         deliberate — tile thumbs, decorative fills — never on full-frame content). */
+      .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+      .od-media-cover { object-fit: cover; }
+
+      /* data text only — authored copy is rewritten to its budget instead */
+      .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+      .od-clamp-2 { -webkit-line-clamp: 2; }
+      .od-clamp-3 { -webkit-line-clamp: 3; }
+      .od-lines-2 { min-height: calc(2 * 1.4em); }
+      .od-nowrap  { white-space: nowrap; }
+      .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+
+      /* screen skeleton (optional): bars take their own space, the middle scrolls — no padding guessed for chrome */
+      .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+      .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+      /* horizontal rail: the next item peeks at the edge; trailing room survives overflow */
+      .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+                 padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+      .od-rail::-webkit-scrollbar { display: none; }
+      :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+      :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+      .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+      .od-touch  { min-width: 44px; min-height: 44px; }
+    }
+    /* /OD-LAYOUT-PRIMITIVES v1 */
+
+    :root {
+      color-scheme: dark;
+      --ink: #f5f7f8;
+      --ink-soft: #abb4bc;
+      --ink-faint: #717b84;
+      --ground: #08090b;
+      --surface: #111419;
+      --surface-raised: #171b20;
+      --line: #30363d;
+      --line-strong: #59636d;
+      --chrome-1: #eef2f4;
+      --chrome-2: #c6cdd2;
+      --chrome-3: #8d979f;
+      --chrome-4: #4e5861;
+      --chrome-5: #262c32;
+      --accent: #d8ff3e;
+      --danger: #ff7262;
+      --focus: #d8ff3e;
+      --serif: Georgia, "Times New Roman", serif;
+      --sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --space-7: 48px;
+      --space-8: 64px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --motion-fast: 180ms;
+      --motion-ball: 360ms;
+      --ball-size: clamp(17rem, 38vw, 30rem);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-width: 320px;
+      background: var(--ground);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-width: 320px;
+      min-height: 100svh;
+      margin: 0;
+      overflow-x: clip;
+      background: var(--ground);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+    }
+
+    button,
+    input,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button:not(:disabled) {
+      cursor: pointer;
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    ::selection {
+      background: var(--accent);
+      color: var(--ground);
+    }
+
+    .skip-link {
+      position: fixed;
+      top: var(--space-4);
+      left: var(--space-4);
+      z-index: 100;
+      padding: 10px 14px;
+      transform: translateY(-160%);
+      background: var(--accent);
+      color: var(--ground);
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform var(--motion-fast) ease-out;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: var(--space-5);
+      width: min(100%, 1600px);
+      min-height: 100svh;
+      margin: 0 auto;
+      padding: var(--space-5) clamp(16px, 3vw, 48px) var(--space-4);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-5);
+      min-height: 44px;
+      padding-bottom: var(--space-4);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      font-size: 0.82rem;
+      font-weight: 760;
+      letter-spacing: 0.16em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .brand-mark {
+      display: grid;
+      grid-template-columns: repeat(2, 6px);
+      gap: 3px;
+      width: 15px;
+      height: 15px;
+      transform: rotate(45deg);
+    }
+
+    .brand-mark > span {
+      display: block;
+      width: 6px;
+      height: 6px;
+      background: var(--chrome-2);
+    }
+
+    .brand-mark > span:nth-child(2),
+    .brand-mark > span:nth-child(3) {
+      background: var(--accent);
+    }
+
+    .topbar-meta {
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      font-weight: 680;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .live-status {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      color: var(--ink-soft);
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .live-status::before {
+      display: block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      content: "";
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-areas: "intro stage ledger";
+      grid-template-columns: minmax(210px, 0.7fr) minmax(440px, 1.65fr) minmax(230px, 0.75fr);
+      gap: clamp(24px, 3vw, 48px);
+      align-items: stretch;
+      min-height: 0;
+    }
+
+    .intro {
+      grid-area: intro;
+      align-self: center;
+      padding-block: var(--space-6);
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin: 0 0 var(--space-5);
+      color: var(--accent);
+      font-size: 0.68rem;
+      font-weight: 760;
+      letter-spacing: 0.15em;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      display: block;
+      width: 28px;
+      height: 1px;
+      background: var(--accent);
+      content: "";
+    }
+
+    h1,
+    h2,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 8.8ch;
+      margin-bottom: var(--space-5);
+      font-family: var(--serif);
+      font-size: clamp(2.8rem, 5vw, 5.6rem);
+      font-weight: 400;
+      letter-spacing: -0.055em;
+      line-height: 0.9;
+    }
+
+    .intro-copy {
+      max-width: 35ch;
+      margin-bottom: var(--space-6);
+      color: var(--ink-soft);
+      font-size: 0.96rem;
+      line-height: 1.7;
+    }
+
+    .instruction {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      color: var(--ink);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .keycap {
+      display: grid;
+      min-width: 36px;
+      min-height: 28px;
+      place-items: center;
+      padding-inline: 8px;
+      border: 1px solid var(--line-strong);
+      border-bottom-width: 3px;
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--ink-soft);
+      font-size: 0.65rem;
+      line-height: 1;
+    }
+
+    .try-block {
+      margin-top: var(--space-7);
+    }
+
+    .try-label {
+      display: block;
+      margin-bottom: var(--space-3);
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .try-words {
+      --od-gap: 8px;
+    }
+
+    .try-word {
+      min-height: 36px;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--ink-soft);
+      font-size: 0.75rem;
+      line-height: 1;
+      transition: transform var(--motion-fast) ease-out;
+    }
+
+    .try-word:disabled {
+      cursor: not-allowed;
+      opacity: 0.4;
+    }
+
+    .stage {
+      position: relative;
+      grid-area: stage;
+      display: grid;
+      grid-template-rows: auto minmax(390px, 1fr) auto;
+      min-width: 0;
+      min-height: 560px;
+      overflow: clip;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    .stage::before,
+    .stage::after {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      pointer-events: none;
+      content: "";
+    }
+
+    .stage::before {
+      top: 10px;
+      left: 10px;
+      border-top: 1px solid var(--line-strong);
+      border-left: 1px solid var(--line-strong);
+    }
+
+    .stage::after {
+      right: 10px;
+      bottom: 10px;
+      border-right: 1px solid var(--line-strong);
+      border-bottom: 1px solid var(--line-strong);
+    }
+
+    .stage-head,
+    .stage-foot {
+      position: relative;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-4);
+      padding: var(--space-4) var(--space-5);
+      color: var(--ink-faint);
+      font-size: 0.66rem;
+      font-weight: 720;
+      letter-spacing: 0.13em;
+      line-height: 1.4;
+      text-transform: uppercase;
+    }
+
+    .stage-head {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .stage-foot {
+      border-top: 1px solid var(--line);
+    }
+
+    .stage-action {
+      color: var(--accent);
+      text-align: right;
+    }
+
+    .scene {
+      position: relative;
+      display: grid;
+      min-height: 0;
+      place-items: center;
+      perspective: 1000px;
+      perspective-origin: 50% 47%;
+      isolation: isolate;
+    }
+
+    .scene-axis {
+      position: absolute;
+      z-index: -1;
+      background: var(--line);
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .scene-axis.is-horizontal {
+      top: 50%;
+      right: var(--space-5);
+      left: var(--space-5);
+      height: 1px;
+    }
+
+    .scene-axis.is-vertical {
+      top: var(--space-5);
+      bottom: var(--space-5);
+      left: 50%;
+      width: 1px;
+    }
+
+    .cable {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      z-index: 1;
+      width: 1px;
+      height: clamp(26px, 7vh, 64px);
+      background: var(--line-strong);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .cable::after {
+      position: absolute;
+      right: 50%;
+      bottom: -5px;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--chrome-3);
+      content: "";
+      transform: translateX(50%);
+    }
+
+    .ball-wrap {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      width: var(--ball-size);
+      height: var(--ball-size);
+      place-items: center;
+      transform-style: preserve-3d;
+    }
+
+    .ball {
+      position: relative;
+      width: var(--ball-size);
+      height: var(--ball-size);
+      transform: rotateX(0deg) rotateY(0deg);
+      transform-style: preserve-3d;
+      transition: transform var(--motion-ball) cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
+    }
+
+    .ball-core {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      display: block;
+      width: 65%;
+      height: 65%;
+      border: 1px solid #343a40;
+      border-radius: 50%;
+      background: #0f1215;
+      box-shadow: inset -28px -18px 45px rgba(0, 0, 0, 0.72), inset 18px 12px 30px rgba(255, 255, 255, 0.035);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .facet {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(8, 9, 11, 0.72);
+      border-radius: 3px;
+      background: var(--facet-tone, var(--chrome-4));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+      color: var(--ground);
+      clip-path: polygon(7% 0, 93% 0, 100% 88%, 90% 100%, 10% 100%, 0 88%);
+      transform: var(--facet-transform) translateX(var(--merge-tangent-shift, 0px));
+      transform-style: preserve-3d;
+      backface-visibility: hidden;
+      overflow: clip;
+      pointer-events: none;
+    }
+
+    .facet.is-dark {
+      color: var(--ink);
+    }
+
+    .facet.is-active {
+      z-index: 3;
+      border-color: var(--ground);
+      background: var(--accent);
+      box-shadow: inset 0 0 0 2px rgba(8, 9, 11, 0.72), 0 0 0 2px var(--accent);
+      color: var(--ground);
+    }
+
+    .facet.is-active::after {
+      display: block;
+      font-size: 1.15rem;
+      font-weight: 300;
+      line-height: 1;
+      content: "+";
+    }
+
+    .facet.has-word {
+      z-index: 2;
+      border-color: #eef2f4;
+      background: var(--chrome-1);
+      color: var(--ground);
+      box-shadow: inset 0 0 0 1px rgba(8, 9, 11, 0.2);
+    }
+
+    .facet.has-word::after {
+      content: none;
+    }
+
+    .facet.just-placed {
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    .facet-word {
+      display: block;
+      max-width: calc(100% - 10px);
+      overflow: visible;
+      font-size: 10px;
+      font-weight: 820;
+      letter-spacing: 0.015em;
+      line-height: 1;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+      transform: translateZ(2px);
+    }
+
+    .facet.just-placed .facet-word {
+      animation: word-set var(--motion-fast) ease-out both;
+    }
+
+    @keyframes word-set {
+      from {
+        opacity: 0;
+        transform: translateY(6px) translateZ(2px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) translateZ(2px);
+      }
+    }
+
+    .floor-shadow {
+      position: absolute;
+      bottom: 9%;
+      left: 50%;
+      z-index: 0;
+      display: block;
+      width: min(58%, 330px);
+      height: 24px;
+      border-radius: 50%;
+      background: #000;
+      opacity: 0.56;
+      filter: blur(18px);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+
+    .ledger {
+      grid-area: ledger;
+      align-self: center;
+      min-width: 0;
+      padding-block: var(--space-6);
+    }
+
+    .ledger-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--space-4);
+      margin-bottom: var(--space-5);
+      padding-bottom: var(--space-4);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ledger h2 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 1.65rem;
+      font-weight: 400;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .count {
+      color: var(--ink-soft);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.78rem;
+      font-weight: 720;
+      letter-spacing: 0.09em;
+    }
+
+    .empty-state {
+      padding: var(--space-6) 0;
+      color: var(--ink-faint);
+    }
+
+    .empty-lines {
+      display: grid;
+      gap: 7px;
+      width: 72px;
+      margin-bottom: var(--space-4);
+    }
+
+    .empty-lines > span {
+      display: block;
+      height: 1px;
+      background: var(--line-strong);
+    }
+
+    .empty-lines > span:nth-child(2) {
+      width: 72%;
+    }
+
+    .empty-lines > span:nth-child(3) {
+      width: 45%;
+    }
+
+    .empty-state p {
+      max-width: 25ch;
+      margin-bottom: 0;
+      font-size: 0.84rem;
+      line-height: 1.65;
+    }
+
+    .word-list {
+      display: grid;
+      max-height: 330px;
+      margin: 0;
+      padding: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      list-style: none;
+      scrollbar-color: var(--line-strong) transparent;
+      scrollbar-width: thin;
+    }
+
+    .word-list[hidden],
+    .empty-state[hidden] {
+      display: none;
+    }
+
+    .word-item {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) 12px;
+      gap: var(--space-3);
+      align-items: center;
+      min-height: 45px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .word-index {
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+
+    .word-text {
+      display: block;
+      color: var(--ink);
+      font-family: var(--serif);
+      font-size: 1.04rem;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+
+    .word-marker {
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--chrome-3);
+    }
+
+    .word-item:last-child .word-marker {
+      background: var(--accent);
+    }
+
+    .reset-button {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      min-height: 44px;
+      margin-top: var(--space-5);
+      padding: 8px 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink-soft);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .reset-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    .reset-button svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .composer-shell {
+      position: relative;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-5);
+      align-items: end;
+      padding: var(--space-4);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.35);
+    }
+
+    .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-3);
+      align-items: end;
+      min-width: 0;
+    }
+
+    .input-field {
+      --od-gap: 6px;
+    }
+
+    .input-label {
+      color: var(--ink-soft);
+      font-size: 0.7rem;
+      font-weight: 720;
+      letter-spacing: 0.11em;
+      line-height: 1.3;
+      text-transform: uppercase;
+    }
+
+    .word-input {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      height: 52px;
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--ground);
+      color: var(--ink);
+      caret-color: var(--accent);
+      font-family: var(--serif);
+      font-size: clamp(1.25rem, 2vw, 1.65rem);
+      line-height: 1;
+    }
+
+    .word-input::placeholder {
+      color: #65707a;
+      opacity: 1;
+    }
+
+    .word-input[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+
+    .word-input:disabled {
+      cursor: not-allowed;
+      opacity: 0.56;
+    }
+
+    .field-message {
+      min-height: 1.35em;
+      color: var(--ink-faint);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+
+    .field-message.is-error {
+      color: #ff9c91;
+    }
+
+    .submit-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-3);
+      min-width: 148px;
+      min-height: 52px;
+      padding: 10px 18px;
+      border: 1px solid var(--accent);
+      border-radius: var(--radius-sm);
+      background: var(--accent);
+      color: var(--ground);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.075em;
+      line-height: 1;
+      text-transform: uppercase;
+      transition: transform var(--motion-fast) ease-out, opacity var(--motion-fast) ease-out;
+    }
+
+    .submit-button svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
+    }
+
+    .submit-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .composer-meta {
+      display: grid;
+      gap: var(--space-2);
+      justify-items: end;
+      min-width: 132px;
+      padding-bottom: 4px;
+    }
+
+    .composer-status {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      color: var(--ink-soft);
+      font-size: 0.68rem;
+      font-weight: 720;
+      letter-spacing: 0.09em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .composer-status::before {
+      display: block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      content: "";
+    }
+
+    .composer-status.is-busy::before {
+      background: var(--chrome-2);
+    }
+
+    .composer-status.is-complete::before {
+      border: 1px solid var(--accent);
+      background: transparent;
+    }
+
+    .slot-meta {
+      color: var(--ink-faint);
+      font-size: 0.66rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      line-height: 1.2;
+      text-transform: uppercase;
+    }
+
+    .dialog {
+      width: min(calc(100% - 32px), 430px);
+      padding: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface-raised);
+      color: var(--ink);
+      box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7);
+    }
+
+    .dialog::backdrop {
+      background: rgba(0, 0, 0, 0.78);
+    }
+
+    .dialog-content {
+      padding: var(--space-6);
+    }
+
+    .dialog-kicker {
+      margin-bottom: var(--space-3);
+      color: var(--danger);
+      font-size: 0.68rem;
+      font-weight: 760;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .dialog h2 {
+      margin-bottom: var(--space-4);
+      font-family: var(--serif);
+      font-size: 2rem;
+      font-weight: 400;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .dialog p {
+      margin-bottom: var(--space-6);
+      color: var(--ink-soft);
+      line-height: 1.65;
+    }
+
+    .dialog-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-3);
+    }
+
+    .dialog-button {
+      min-height: 46px;
+      padding: 9px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-weight: 780;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .dialog-button.is-secondary {
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .dialog-button.is-danger {
+      border: 1px solid var(--danger);
+      background: var(--danger);
+      color: var(--ground);
+    }
+
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+
+    @media (hover: hover) {
+      .try-word:not(:disabled):hover {
+        border-color: var(--chrome-2);
+        color: var(--ink);
+        transform: translateY(-2px);
+      }
+
+      .submit-button:not(:disabled):hover {
+        transform: translateY(-2px);
+      }
+
+      .reset-button:not(:disabled):hover {
+        color: var(--ink);
+      }
+
+      .dialog-button:hover {
+        transform: translateY(-1px);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .workspace {
+        grid-template-areas:
+          "stage intro"
+          "stage ledger";
+        grid-template-columns: minmax(0, 1.45fr) minmax(240px, 0.55fr);
+        grid-template-rows: auto 1fr;
+      }
+
+      .intro {
+        align-self: end;
+        padding: var(--space-4) 0 0;
+      }
+
+      h1 {
+        font-size: clamp(2.6rem, 5vw, 4rem);
+      }
+
+      .try-block {
+        margin-top: var(--space-5);
+      }
+
+      .ledger {
+        align-self: start;
+        padding: var(--space-5) 0 var(--space-4);
+      }
+
+      .word-list {
+        max-height: 200px;
+      }
+    }
+
+    @media (max-width: 800px) {
+      :root {
+        --ball-size: clamp(17rem, 76vw, 25rem);
+      }
+
+      .app-shell {
+        display: block;
+        padding: var(--space-4);
+      }
+
+      .topbar {
+        margin-bottom: var(--space-5);
+      }
+
+      .topbar-meta {
+        display: none;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-areas:
+          "intro"
+          "stage"
+          "ledger";
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-5);
+      }
+
+      .intro {
+        padding: var(--space-5) 0 var(--space-3);
+      }
+
+      h1 {
+        max-width: 10ch;
+        font-size: clamp(3rem, 15vw, 4.8rem);
+      }
+
+      .intro-copy {
+        max-width: 52ch;
+      }
+
+      .try-block {
+        margin-top: var(--space-5);
+      }
+
+      .stage {
+        grid-template-rows: auto minmax(390px, 1fr) auto;
+        min-height: 510px;
+      }
+
+      .ledger {
+        padding: var(--space-5) 0;
+      }
+
+      .word-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 var(--space-5);
+        max-height: none;
+      }
+
+      .composer-shell {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--space-3);
+        margin-top: var(--space-5);
+      }
+
+      .composer-meta {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        justify-items: start;
+        min-width: 0;
+        padding: 0;
+      }
+
+      .slot-meta {
+        justify-self: end;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .app-shell {
+        padding: var(--space-3);
+      }
+
+      .brand {
+        font-size: 0.72rem;
+      }
+
+      .live-status {
+        font-size: 0.65rem;
+      }
+
+      .stage-head,
+      .stage-foot {
+        padding-inline: var(--space-4);
+      }
+
+      .stage-foot {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .stage-action {
+        text-align: left;
+      }
+
+      .word-list {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .composer {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .submit-button {
+        width: 100%;
+      }
+
+      .dialog-content {
+        padding: var(--space-5);
+      }
+
+      .dialog-actions {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+      }
+    }
+
+    /* Continuous keyboard mode */
+    :root {
+      --ink: #d1d0c5;
+      --ink-soft: #77797c;
+      --ink-faint: #646669;
+      --ground: #323437;
+      --surface: #323437;
+      --surface-raised: #2c2e31;
+      --line: #45474a;
+      --line-strong: #646669;
+      --chrome-1: #d3d5d2;
+      --chrome-2: #aeb2b0;
+      --chrome-3: #7f8584;
+      --chrome-4: #555b5c;
+      --chrome-5: #3b4042;
+      --accent: #e2b714;
+      --danger: #ca4754;
+      --focus: #e2b714;
+      --serif: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+      --sans: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+      --radius-sm: 5px;
+      --radius-md: 8px;
+      --motion-fast: 90ms;
+      --motion-ball: 320ms;
+      --ball-size: clamp(19rem, 43vw, 35rem);
+    }
+
+    body {
+      background: var(--ground);
+      letter-spacing: -0.02em;
+    }
+
+    .app-shell {
+      width: min(100%, 1440px);
+      gap: var(--space-3);
+      padding: clamp(16px, 3vw, 40px);
+    }
+
+    .topbar {
+      min-height: 44px;
+      padding: 0;
+      border-bottom: 0;
+    }
+
+    .brand {
+      gap: 8px;
+      font-size: 0.88rem;
+      letter-spacing: -0.045em;
+      text-transform: lowercase;
+    }
+
+    .brand-mark {
+      grid-template-columns: repeat(2, 5px);
+      gap: 2px;
+      width: 12px;
+      height: 12px;
+    }
+
+    .brand-mark > span {
+      width: 5px;
+      height: 5px;
+    }
+
+    .topbar-meta,
+    .live-status {
+      font-size: 0.68rem;
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .workspace {
+      grid-template-areas:
+        "stage"
+        "ledger";
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-3);
+      min-height: 0;
+    }
+
+    .intro {
+      display: none;
+    }
+
+    .stage {
+      grid-template-rows: auto minmax(410px, 1fr) auto;
+      width: min(100%, 1000px);
+      min-height: clamp(500px, 68vh, 760px);
+      margin: 0 auto;
+      overflow: visible;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+      cursor: text;
+    }
+
+    .stage::before,
+    .stage::after {
+      display: none;
+    }
+
+    .stage-head,
+    .stage-foot {
+      padding: var(--space-2) var(--space-4);
+      border: 0;
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .stage-action {
+      color: var(--accent);
+    }
+
+    .scene {
+      perspective: 1100px;
+      perspective-origin: 50% 48%;
+    }
+
+    .scene-axis {
+      display: none;
+    }
+
+    .floor-shadow {
+      bottom: 8%;
+      width: min(40%, 390px);
+      height: 24px;
+      background: #222427;
+      opacity: 0.72;
+    }
+
+    .ball-core {
+      width: 80%;
+      height: 80%;
+      border-color: #414548;
+      background: #292b2e;
+    }
+
+    .facet {
+      overflow: visible;
+      border-color: rgba(38, 39, 42, 0.78);
+      border-radius: 1px;
+      clip-path: none;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
+    }
+
+    .facet.is-active {
+      border-color: #26272a;
+      background: var(--accent);
+      color: #26272a;
+      box-shadow: inset 0 0 0 2px rgba(38, 39, 42, 0.6), 0 0 0 2px var(--accent);
+    }
+
+    .facet.is-active::after {
+      display: block;
+      width: 2px;
+      height: 17px;
+      background: #26272a;
+      content: "";
+      opacity: 0.72;
+      animation: facet-caret 900ms steps(1, end) infinite;
+    }
+
+    .facet.is-active.has-draft::after {
+      display: none;
+    }
+
+    .facet.has-word {
+      border-color: var(--chrome-1);
+      background: var(--chrome-1);
+      color: #26272a;
+    }
+
+    .facet.just-placed {
+      background: var(--accent);
+    }
+
+    .facet-word {
+      width: 100%;
+      max-width: 100%;
+      overflow: visible;
+      font-family: var(--sans);
+      font-weight: 750;
+      letter-spacing: -0.04em;
+      transform: translateZ(3px);
+    }
+
+    .facet.has-word .facet-word,
+    .facet.is-active.has-draft .facet-word {
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 1px;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .facet.merge-anchor,
+    .facet.merge-continuation {
+      overflow: hidden;
+      border-top-color: #26272a;
+      border-right-color: transparent;
+      border-bottom-color: #26272a;
+      border-left-color: transparent;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    .facet.merge-left-edge {
+      border-left-color: #26272a;
+      border-radius: 2px 0 0 2px;
+    }
+
+    .facet.merge-right-edge {
+      border-right-color: #26272a;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .facet.merge-anchor .facet-word,
+    .facet.merge-continuation .facet-word {
+      visibility: visible;
+      width: 100%;
+      max-width: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+      transform: translateZ(1px);
+    }
+
+    .facet.merge-left-edge .facet-word {
+      text-align: right;
+    }
+
+    .facet.merge-right-edge .facet-word {
+      text-align: left;
+    }
+
+    @keyframes facet-caret {
+      0%,
+      48% {
+        opacity: 0.72;
+      }
+      49%,
+      100% {
+        opacity: 0;
+      }
+    }
+
+    .ledger {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: var(--space-5);
+      align-items: center;
+      width: min(100%, 900px);
+      margin: 0 auto;
+      padding: var(--space-3) var(--space-4) 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .ledger-head {
+      align-items: baseline;
+      justify-content: flex-start;
+      gap: var(--space-2);
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    .ledger h2,
+    .count {
+      color: var(--ink-faint);
+      font-family: var(--sans);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      line-height: 1;
+      text-transform: lowercase;
+    }
+
+    .empty-state {
+      padding: 0;
+    }
+
+    .empty-lines {
+      display: none;
+    }
+
+    .empty-state p {
+      max-width: none;
+      margin: 0;
+      color: var(--ink-faint);
+      font-size: 0.7rem;
+    }
+
+    .word-list {
+      display: flex;
+      gap: var(--space-5);
+      align-items: center;
+      max-height: none;
+      overflow-x: auto;
+      overflow-y: visible;
+      scrollbar-width: none;
+    }
+
+    .word-list::-webkit-scrollbar {
+      display: none;
+    }
+
+    .word-item {
+      display: flex;
+      flex: none;
+      grid-template-columns: none;
+      gap: 7px;
+      min-height: 32px;
+      border: 0;
+    }
+
+    .word-index {
+      font-size: 0.58rem;
+    }
+
+    .word-text {
+      max-width: 14ch;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+
+    .word-marker {
+      display: none;
+    }
+
+    .word-item:last-child .word-text {
+      color: var(--accent);
+    }
+
+    .reset-button {
+      min-height: 36px;
+      margin: 0;
+      padding: 4px 0;
+      font-size: 0.68rem;
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .reset-button svg {
+      display: none;
+    }
+
+    .composer-shell {
+      display: block;
+      width: min(100%, 820px);
+      margin: var(--space-3) auto 0;
+      padding: 0 var(--space-4);
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .composer {
+      display: block;
+    }
+
+    .input-field {
+      --od-gap: 7px;
+    }
+
+    .input-label {
+      color: var(--accent);
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .word-input {
+      height: 70px;
+      padding: 4px 0 10px;
+      border: 0;
+      border-bottom: 2px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: clamp(1.9rem, 4.5vw, 3.5rem);
+      font-weight: 500;
+      letter-spacing: -0.07em;
+      text-align: center;
+    }
+
+    .word-input::placeholder {
+      color: var(--ink-faint);
+    }
+
+    .word-input:focus-visible {
+      border-color: var(--accent);
+      outline: 0;
+    }
+
+    .field-message {
+      min-height: 1.4em;
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      text-align: center;
+    }
+
+    .submit-button {
+      display: none !important;
+    }
+
+    .composer-meta {
+      display: flex;
+      gap: var(--space-5);
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      padding: var(--space-2) 0 0;
+    }
+
+    .composer-status,
+    .slot-meta {
+      font-size: 0.66rem;
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .key-echo {
+      position: fixed;
+      right: clamp(16px, 3vw, 40px);
+      bottom: clamp(16px, 3vw, 40px);
+      z-index: 20;
+      display: grid;
+      min-width: 44px;
+      min-height: 44px;
+      place-items: center;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-bottom-width: 3px;
+      border-radius: 5px;
+      background: var(--surface-raised);
+      color: var(--ink-soft);
+      font-size: 0.64rem;
+      line-height: 1;
+      opacity: 0;
+      transform: translateY(6px) scale(0.94);
+      pointer-events: none;
+    }
+
+    .key-echo.is-hit {
+      animation: key-hit 240ms ease-out both;
+    }
+
+    @keyframes key-hit {
+      0% {
+        opacity: 0;
+        transform: translateY(6px) scale(0.94);
+      }
+      30% {
+        opacity: 1;
+        transform: translateY(2px) scale(0.98);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @media (max-width: 800px) {
+      :root {
+        --ball-size: clamp(18rem, 76vw, 29rem);
+      }
+
+      .app-shell {
+        display: grid;
+        padding: var(--space-4);
+      }
+
+      .workspace {
+        grid-template-areas:
+          "stage"
+          "ledger";
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .stage {
+        grid-template-rows: auto minmax(390px, 1fr) auto;
+        min-height: 510px;
+      }
+
+      .ledger {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        padding-block: var(--space-3) 0;
+      }
+
+      .composer-shell {
+        display: block;
+        margin-top: var(--space-3);
+      }
+
+      .composer-meta {
+        display: flex;
+      }
+    }
+
+    @media (max-width: 520px) {
+      :root {
+        --ball-size: min(18.5rem, 88vw);
+      }
+
+      .app-shell {
+        padding: var(--space-3);
+      }
+
+      .topbar-meta {
+        display: none;
+      }
+
+      .stage {
+        grid-template-rows: auto minmax(340px, 1fr) auto;
+        min-height: 465px;
+      }
+
+      .stage-head,
+      .stage-foot {
+        align-items: center;
+        flex-direction: row;
+      }
+
+      .stage-action {
+        text-align: right;
+      }
+
+      .ledger {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-3);
+      }
+
+      .ledger-head {
+        display: none;
+      }
+
+      .word-list {
+        display: flex;
+      }
+
+      .composer {
+        display: block;
+      }
+
+      .word-input {
+        height: 62px;
+        font-size: clamp(1.7rem, 10vw, 2.7rem);
+      }
+
+      .key-echo {
+        right: var(--space-3);
+        bottom: var(--space-3);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .facet.is-active::after {
+        opacity: 0.72;
+      }
+    }
+
+    /* Ordered sentence surface */
+    .ball-wrap {
+      --track-x: 0deg;
+      --track-y: 0deg;
+      isolation: isolate;
+      overscroll-behavior: contain;
+      transform: rotateX(var(--track-x)) rotateY(var(--track-y));
+      transform-style: flat;
+      transition: transform var(--motion-ball) cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .ball-wrap {
+        cursor: ew-resize;
+      }
+    }
+
+    .ball-wrap::after {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      display: block;
+      border-radius: 50%;
+      background:
+        radial-gradient(
+          circle at 50% 48%,
+          rgba(255, 255, 255, 0.22) 0%,
+          rgba(255, 255, 255, 0.12) 30%,
+          rgba(255, 255, 255, 0.04) 68%,
+          rgba(255, 255, 255, 0) 100%
+        );
+      content: "";
+      pointer-events: none;
+    }
+
+    .ball-core {
+      border-color: #eef1ed;
+      background: #d8ddd8;
+      box-shadow: none;
+    }
+
+    .ball {
+      z-index: 1;
+      transform: rotateX(var(--ball-x, 0deg)) rotateY(var(--ball-y, 0deg));
+      transform-style: preserve-3d;
+      transition: transform var(--ball-turn-duration, var(--motion-ball)) cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .surface-map {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: none;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      backface-visibility: hidden;
+      pointer-events: none;
+    }
+
+    .facet {
+      transform: var(--facet-transform) scaleX(var(--facet-scale-x, 1));
+    }
+
+    .facet.tile-owned {
+      z-index: 3;
+      overflow: hidden;
+      border-top-color: #26272a;
+      border-bottom-color: #26272a;
+      border-radius: 0;
+      background: var(--word-tone, var(--facet-tone));
+      color: #17191a;
+      box-shadow: none;
+    }
+
+    .facet.tile-owned.is-word-multi {
+      --facet-scale-x: 1.12;
+    }
+
+    .facet.tile-owned.word-start {
+      border-left-color: #26272a;
+      border-right-width: 0;
+      border-radius: 2px 0 0 2px;
+    }
+
+    .facet.tile-owned.word-middle {
+      border-right-width: 0;
+      border-left-width: 0;
+    }
+
+    .facet.tile-owned.word-end {
+      border-right-color: #26272a;
+      border-left-width: 0;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .facet.tile-owned.word-start.word-end {
+      border-right-width: 1px;
+      border-left-width: 1px;
+      border-right-color: #26272a;
+      border-left-color: #26272a;
+      border-radius: 2px;
+    }
+
+    .facet.tile-owned.has-word {
+      border-top-color: #26272a;
+      border-bottom-color: #26272a;
+      background: var(--word-tone, var(--facet-tone));
+      color: #17191a;
+    }
+
+    .facet.tile-owned.is-active {
+      border-top-color: #26272a;
+      border-bottom-color: #26272a;
+      background: var(--accent);
+      color: #26272a;
+      box-shadow: none;
+    }
+
+    .facet.tile-owned.just-placed {
+      background: var(--word-tone, var(--facet-tone));
+    }
+
+    .facet.tile-owned.just-placed .facet-word {
+      animation: tile-word-set var(--motion-fast) ease-out both;
+    }
+
+    @keyframes tile-word-set {
+      from {
+        opacity: 0.35;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .facet.tile-owned .facet-word {
+      display: block;
+      width: 100%;
+      max-width: none;
+      padding-inline: 2px;
+      color: inherit;
+      font-size: clamp(9px, calc(var(--ball-size) * 0.019), 12px);
+      line-height: 1;
+      text-align: center;
+      text-shadow: 0 1px 0 rgba(238, 240, 235, 0.46);
+      transform: translateZ(2px);
+    }
+
+    .facet.tile-owned.word-label-anchor {
+      z-index: 4;
+      overflow: visible;
+    }
+
+    .facet.tile-owned.word-label-anchor .facet-word {
+      position: absolute;
+      top: 50%;
+      left: calc(50% + var(--word-center-shift, 0%));
+      width: calc(var(--word-span, 1) * 100%);
+      padding: 0;
+      text-align: center;
+      transform: translate(-50%, -50%) translateZ(2px);
+    }
+
+    .surface-word-patch {
+      fill: transparent;
+      stroke: transparent;
+      stroke-width: 4;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .surface-word-text {
+      fill: #17191a;
+      font-family: var(--sans);
+      font-weight: 750;
+      letter-spacing: -0.04em;
+      paint-order: stroke fill;
+      stroke: rgba(238, 240, 235, 0.72);
+      stroke-width: 1.35;
+      text-transform: uppercase;
+    }
+
+    .surface-word.is-draft .surface-word-patch {
+      fill: var(--accent);
+      stroke: #26272a;
+    }
+
+    .surface-word.is-draft .surface-word-text {
+      stroke: transparent;
+    }
+
+    .surface-word {
+      transform-box: view-box;
+      transform-origin: center;
+    }
+
+    .surface-word.is-empty .surface-word-text {
+      opacity: 0.75;
+      animation: facet-caret 900ms steps(1, end) infinite;
+    }
+
+    .surface-word.is-placed {
+      animation: surface-word-set var(--motion-fast) ease-out both;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    @keyframes surface-word-set {
+      from {
+        opacity: 0.35;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    :root {
+      --motion-flow: 680ms;
+    }
+
+    .feel-controls {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      min-width: 0;
+      color: var(--ink-faint);
+      letter-spacing: 0;
+      text-transform: lowercase;
+    }
+
+    .feel-option,
+    .sound-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--ink-faint);
+      font-size: 0.68rem;
+      font-weight: 720;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      text-transform: lowercase;
+      transition:
+        color var(--motion-fast) ease-out,
+        background-color var(--motion-fast) ease-out,
+        border-color var(--motion-fast) ease-out,
+        opacity var(--motion-fast) ease-out;
+    }
+
+    .feel-option + .feel-option {
+      margin-left: -1px;
+    }
+
+    .feel-option[aria-pressed="true"] {
+      position: relative;
+      z-index: 1;
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--ground);
+    }
+
+    .sound-toggle {
+      margin-left: 5px;
+      border-color: transparent;
+      color: var(--ink-soft);
+    }
+
+    .sound-toggle.is-muted {
+      color: var(--ink-faint);
+      text-decoration: line-through;
+      text-decoration-thickness: 1px;
+    }
+
+    .feel-option:disabled {
+      opacity: 0.45;
+      cursor: wait;
+    }
+
+    body[data-feel-mode="flow"] .ball {
+      transition-duration: var(--ball-turn-duration, var(--motion-flow));
+      transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    body[data-feel-mode="flow"] .key-echo.is-hit {
+      animation: flow-key-hit 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes flow-key-hit {
+      0% {
+        opacity: 0;
+        transform: translateY(5px) scale(0.97);
+      }
+      28% {
+        opacity: 0.82;
+        transform: translateY(1px) scale(0.99);
+      }
+      100% {
+        opacity: 0;
+        transform: translateY(-2px) scale(1);
+      }
+    }
+
+    @media (max-width: 520px) {
+      .stage-foot {
+        align-items: stretch;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+
+      .feel-controls {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+        width: 100%;
+      }
+
+      .feel-option,
+      .sound-toggle {
+        width: 100%;
+      }
+
+      #stage-note {
+        text-align: left;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ball-wrap {
+        transform: none;
+      }
+
+      .ball {
+        transition-duration: 1ms;
+      }
+
+      body[data-feel-mode="flow"] .key-echo.is-hit {
+        animation-duration: 1ms;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#word-input">Skip to word input</a>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="Type Disco">
+        <span class="brand-mark" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+        <span>Type / Disco</span>
+      </div>
+      <div class="topbar-meta" aria-hidden="true">space commits · backspace edits</div>
+      <div class="live-status">
+        <span id="top-count">0 words set</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="intro" aria-labelledby="main-title">
+        <p class="eyebrow">An instrument for language</p>
+        <h1 id="main-title">Type into the light.</h1>
+        <p class="intro-copy">
+          Give every word a mirrored side. Set one, watch the ball turn, then meet the next empty facet.
+        </p>
+        <div class="instruction">
+          <span class="keycap">Enter</span>
+          <span>sets the active side</span>
+        </div>
+        <div class="try-block">
+          <span class="try-label">Try a word</span>
+          <div class="try-words od-cluster">
+            <button class="try-word" type="button" data-word="kinetic">kinetic</button>
+            <button class="try-word" type="button" data-word="mirror">mirror</button>
+            <button class="try-word" type="button" data-word="afterglow">afterglow</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="stage" aria-label="Interactive three-dimensional disco ball">
+        <div class="stage-head">
+          <span id="facet-readout">line 01 · word 01</span>
+          <span class="stage-action" id="stage-action">ready — just type</span>
+        </div>
+
+        <div class="scene">
+          <span class="scene-axis is-horizontal" aria-hidden="true"></span>
+          <span class="scene-axis is-vertical" aria-hidden="true"></span>
+          <span class="cable" aria-hidden="true"></span>
+
+          <div class="ball-wrap">
+            <div
+              class="ball"
+              id="ball"
+              role="img"
+              aria-label="A faceted disco ball with no words set"
+            >
+              <span class="ball-core" aria-hidden="true"></span>
+            </div>
+            <svg
+              class="surface-map"
+              id="surface-map"
+              viewBox="0 0 1000 1000"
+              preserveAspectRatio="xMidYMid meet"
+              aria-hidden="true"
+            >
+              <defs>
+                <clipPath id="surface-clip">
+                  <circle cx="500" cy="500" r="407"></circle>
+                </clipPath>
+              </defs>
+              <g id="surface-words" clip-path="url(#surface-clip)"></g>
+            </svg>
+          </div>
+
+          <span class="floor-shadow" aria-hidden="true"></span>
+        </div>
+
+        <div class="stage-foot">
+          <div class="feel-controls" role="group" aria-label="Typing feel">
+            <button
+              class="feel-option"
+              id="mode-mechanical"
+              type="button"
+              data-feel-mode="mechanical"
+              aria-pressed="true"
+            >mechanical</button>
+            <button
+              class="feel-option"
+              id="mode-flow"
+              type="button"
+              data-feel-mode="flow"
+              aria-pressed="false"
+            >flow</button>
+            <button
+              class="sound-toggle"
+              id="sound-toggle"
+              type="button"
+              aria-pressed="false"
+              aria-label="Mute sound"
+            ><span id="sound-label">sound on</span></button>
+          </div>
+          <span id="stage-note">space turns to the next side</span>
+        </div>
+      </section>
+
+      <aside class="ledger" aria-labelledby="ledger-title">
+        <div class="ledger-head">
+          <h2 id="ledger-title">set words</h2>
+          <span class="count" id="ledger-count">00 words</span>
+        </div>
+
+        <div class="empty-state" id="empty-state">
+          <div class="empty-lines" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <p>nothing set yet</p>
+        </div>
+
+        <ol class="word-list" id="word-list" hidden></ol>
+
+        <button class="reset-button od-touch" id="reset-button" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7v5h5"></path>
+            <path d="M5.4 16.5A8 8 0 1 0 6 6.6L4 9"></path>
+          </svg>
+          <span>clear</span>
+        </button>
+      </aside>
+    </main>
+
+    <footer class="composer-shell">
+      <form class="composer" id="word-form" novalidate>
+        <div class="input-field od-field">
+          <label class="input-label" for="word-input">type a word</label>
+          <input
+            class="word-input"
+            id="word-input"
+            name="word"
+            type="text"
+            maxlength="12"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+            inputmode="text"
+            enterkeyhint="done"
+            placeholder="start typing"
+            aria-describedby="field-message"
+            autofocus
+          >
+          <span class="field-message" id="field-message" aria-live="polite">space locks the word and turns the ball</span>
+        </div>
+
+        <button class="submit-button" id="submit-button" type="submit">
+          <span id="submit-label">Set word</span>
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 15 15 5"></path>
+            <path d="M8 5h7v7"></path>
+          </svg>
+        </button>
+      </form>
+
+      <div class="composer-meta" aria-label="Instrument status">
+        <span class="composer-status" id="composer-status">ready — just type</span>
+        <span class="slot-meta" id="slot-meta">active · 01</span>
+      </div>
+    </footer>
+  </div>
+
+  <div class="key-echo" id="key-echo" aria-hidden="true">a</div>
+
+  <dialog class="dialog" id="reset-dialog" aria-labelledby="reset-title">
+    <div class="dialog-content">
+      <div class="dialog-kicker">Clear composition</div>
+      <h2 id="reset-title">Start with an empty ball?</h2>
+      <p>Every word will be removed from its facet. This cannot be undone.</p>
+      <div class="dialog-actions">
+        <button class="dialog-button is-secondary" id="cancel-reset" type="button">Keep words</button>
+        <button class="dialog-button is-danger" id="confirm-reset" type="button">Clear all</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="visually-hidden" id="live-region" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <script type="text/plain" id="legacy-facet-allocator">
+    (() => {
+      "use strict";
+
+      const SLOT_COUNT = 18;
+      const CHARACTERS_PER_TILE = 4;
+      const MAX_TILES_PER_WORD = 3;
+      const TILE_CAPACITY = SLOT_COUNT * MAX_TILES_PER_WORD;
+      const LATITUDE_STEP = 10;
+      const EQUATOR_TILE_COUNT = 36;
+      const ringConfig = Array.from({ length: 18 }, (_, index) => {
+        const latitude = -85 + index * LATITUDE_STEP;
+        const latitudeRadians = latitude * Math.PI / 180;
+        return {
+          latitude,
+          count: Math.max(3, Math.round(EQUATOR_TILE_COUNT * Math.cos(latitudeRadians)))
+        };
+      });
+      const START_LATITUDE = -5;
+      const START_LONGITUDE = 0;
+      const facetTones = ["#e0e2de", "#c1c5c2", "#969c9a", "#6d7474", "#4b5153", "#373c3e"];
+      const darkToneIndexes = new Set([3, 4, 5]);
+
+      const ball = document.querySelector("#ball");
+      const wordForm = document.querySelector("#word-form");
+      const wordInput = document.querySelector("#word-input");
+      const submitButton = document.querySelector("#submit-button");
+      const submitLabel = document.querySelector("#submit-label");
+      const fieldMessage = document.querySelector("#field-message");
+      const facetReadout = document.querySelector("#facet-readout");
+      const stageAction = document.querySelector("#stage-action");
+      const stageNote = document.querySelector("#stage-note");
+      const composerStatus = document.querySelector("#composer-status");
+      const slotMeta = document.querySelector("#slot-meta");
+      const topCount = document.querySelector("#top-count");
+      const ledgerCount = document.querySelector("#ledger-count");
+      const emptyState = document.querySelector("#empty-state");
+      const wordList = document.querySelector("#word-list");
+      const resetButton = document.querySelector("#reset-button");
+      const resetDialog = document.querySelector("#reset-dialog");
+      const cancelReset = document.querySelector("#cancel-reset");
+      const confirmReset = document.querySelector("#confirm-reset");
+      const liveRegion = document.querySelector("#live-region");
+      const keyEcho = document.querySelector("#key-echo");
+      const tryButtons = [...document.querySelectorAll(".try-word")];
+
+      const facets = [];
+      const facetsByRing = [];
+      const words = [];
+      const usedFacetIndexes = new Set();
+      let allocation = [];
+      let allocationRanks = new Map();
+      let draftFacets = [];
+      let activeSlot = 0;
+      let isSpinning = false;
+      let resizeFrame = 0;
+      let isComposing = false;
+      let turnTimer = 0;
+      let messageTimer = 0;
+
+      function circularDistance(a, b) {
+        const difference = Math.abs(a - b) % 360;
+        return Math.min(difference, 360 - difference);
+      }
+
+      function getBfsNeighbors(facet) {
+        const neighbors = [];
+        const currentRing = facetsByRing[facet.ringIndex];
+        const previousPosition = (facet.position - 1 + currentRing.length) % currentRing.length;
+        const nextPosition = (facet.position + 1) % currentRing.length;
+
+        neighbors.push(currentRing[previousPosition], currentRing[nextPosition]);
+
+        [facet.ringIndex - 1, facet.ringIndex + 1].forEach((ringIndex) => {
+          const adjacentRing = facetsByRing[ringIndex];
+          if (!adjacentRing) {
+            return;
+          }
+          const closestAcrossRing = [...adjacentRing]
+            .sort((a, b) =>
+              circularDistance(a.longitude, facet.longitude) -
+              circularDistance(b.longitude, facet.longitude)
+            )
+            .slice(0, 2);
+          neighbors.push(...closestAcrossRing);
+        });
+
+        return [...new Map(neighbors.map((neighbor) => [neighbor.index, neighbor])).values()];
+      }
+
+      function buildBfsAllocation() {
+        const startFacet = facets.reduce((closest, facet) => {
+          const facetDistance =
+            Math.abs(facet.latitude - START_LATITUDE) +
+            circularDistance(facet.longitude, START_LONGITUDE);
+          const closestDistance =
+            Math.abs(closest.latitude - START_LATITUDE) +
+            circularDistance(closest.longitude, START_LONGITUDE);
+          return facetDistance < closestDistance ? facet : closest;
+        }, facets[0]);
+
+        const queue = [startFacet];
+        const visited = new Set([startFacet.index]);
+        const traversal = [];
+
+        while (queue.length > 0 && traversal.length < TILE_CAPACITY) {
+          const current = queue.shift();
+          traversal.push(current);
+
+          const neighbors = getBfsNeighbors(current).sort((a, b) => {
+            const aDistance =
+              Math.abs(a.latitude - START_LATITUDE) +
+              circularDistance(a.longitude, START_LONGITUDE);
+            const bDistance =
+              Math.abs(b.latitude - START_LATITUDE) +
+              circularDistance(b.longitude, START_LONGITUDE);
+            return aDistance - bDistance;
+          });
+
+          neighbors.forEach((neighbor) => {
+            if (!visited.has(neighbor.index)) {
+              visited.add(neighbor.index);
+              queue.push(neighbor);
+            }
+          });
+        }
+
+        return traversal;
+      }
+
+      function buildFacets() {
+        ringConfig.forEach((ring, ringIndex) => {
+          facetsByRing[ringIndex] = [];
+          const longitudeStep = 360 / ring.count;
+          const longitudeOffset = ringIndex % 2 === 0 ? longitudeStep / 2 : 0;
+
+          for (let position = 0; position < ring.count; position += 1) {
+            const longitude = -180 + longitudeOffset + position * longitudeStep;
+            const facet = document.createElement("span");
+            const word = document.createElement("span");
+            const latitudeRadians = ring.latitude * Math.PI / 180;
+            const longitudeRadians = longitude * Math.PI / 180;
+            const directionalLight =
+              Math.cos(latitudeRadians) * Math.cos(longitudeRadians + 0.65) * 0.72 -
+              Math.sin(latitudeRadians) * 0.18;
+            const tileVariation = ((ringIndex * 13 + position * 7) % 9) / 32;
+            const lightValue = directionalLight + tileVariation;
+            const toneIndex =
+              lightValue > 0.66 ? 0 :
+              lightValue > 0.38 ? 1 :
+              lightValue > 0.08 ? 2 :
+              lightValue > -0.2 ? 3 :
+              lightValue > -0.46 ? 4 :
+              5;
+
+            facet.className = "facet";
+            facet.setAttribute("aria-hidden", "true");
+            facet.style.setProperty("--facet-tone", facetTones[toneIndex]);
+            if (darkToneIndexes.has(toneIndex)) {
+              facet.classList.add("is-dark");
+            }
+
+            word.className = "facet-word";
+            facet.appendChild(word);
+            ball.appendChild(facet);
+            const facetRecord = {
+              index: facets.length,
+              element: facet,
+              wordElement: word,
+              latitude: ring.latitude,
+              longitude,
+              ringIndex,
+              position,
+              ringCount: ring.count,
+              toneIndex,
+              value: ""
+            };
+            facets.push(facetRecord);
+            facetsByRing[ringIndex].push(facetRecord);
+          }
+        });
+
+        allocation = buildBfsAllocation();
+        allocationRanks = new Map(allocation.map((facet, index) => [facet.index, index]));
+
+        allocation.forEach((facet, index) => {
+          facet.element.dataset.slot = String(index + 1);
+        });
+      }
+
+      function splitWordAcrossTiles(value) {
+        const segments = [];
+        for (let index = 0; index < value.length; index += CHARACTERS_PER_TILE) {
+          segments.push(value.slice(index, index + CHARACTERS_PER_TILE));
+        }
+        return segments.slice(0, MAX_TILES_PER_WORD);
+      }
+
+      function getTileRun(tileCount) {
+        const initialRoot = allocation[activeSlot];
+        if (!initialRoot) {
+          return [];
+        }
+
+        const patterns =
+          tileCount === 1 ? [[0]] :
+          tileCount === 2 ? [[0, 1], [0, -1]] :
+          [[0, -1, 1], [0, 1, 2], [0, -1, -2]];
+
+        const rootCandidates =
+          tileCount === 1
+            ? [initialRoot]
+            : allocation
+                .slice(activeSlot)
+                .filter((facet) => !usedFacetIndexes.has(facet.index));
+
+        for (const rootFacet of rootCandidates) {
+          const ring = facetsByRing[rootFacet.ringIndex];
+          for (const offsets of patterns) {
+            const candidateRun = offsets.map((offset) => {
+              const position = (rootFacet.position + offset + ring.length) % ring.length;
+              return ring[position];
+            });
+            const isAvailable = candidateRun.every((facet) =>
+              allocationRanks.has(facet.index) &&
+              !usedFacetIndexes.has(facet.index)
+            );
+
+            if (isAvailable) {
+              candidateRun.spanOffsets = offsets.slice();
+              candidateRun.spanShiftTiles =
+                offsets.reduce((total, offset) => total + offset, 0) / offsets.length;
+              return candidateRun;
+            }
+          }
+        }
+
+        const run = [initialRoot];
+        const selectedIndexes = new Set([initialRoot.index]);
+        getBfsNeighbors(initialRoot)
+          .filter((facet) =>
+            allocationRanks.has(facet.index) &&
+            !usedFacetIndexes.has(facet.index)
+          )
+          .sort((a, b) => allocationRanks.get(a.index) - allocationRanks.get(b.index))
+          .forEach((facet) => {
+            if (run.length < tileCount && !selectedIndexes.has(facet.index)) {
+              run.push(facet);
+              selectedIndexes.add(facet.index);
+            }
+          });
+        run.spanOffsets = null;
+        run.spanShiftTiles = 0;
+        return run;
+      }
+
+      function clearMergedSpan(facet) {
+        facet.element.classList.remove(
+          "merge-anchor",
+          "merge-continuation",
+          "merge-left-edge",
+          "merge-right-edge"
+        );
+        facet.element.style.removeProperty("--merge-tangent-shift");
+        facet.wordElement.style.removeProperty("--merged-width");
+        facet.wordElement.style.removeProperty("--merged-shift");
+        facet.mergeTileCount = 0;
+        facet.mergeOffset = 0;
+        facet.mergeCenterOffset = 0;
+        facet.mergeValue = "";
+        facet.mergeSegmentLength = 0;
+        facet.mergeCharactersBefore = 0;
+        if (facet.renderWidth) {
+          facet.element.style.width = `${facet.renderWidth}px`;
+          facet.element.style.marginLeft = `${facet.renderWidth / -2}px`;
+        }
+      }
+
+      const mergedTextCanvas = document.createElement("canvas");
+      const mergedTextContext = mergedTextCanvas.getContext("2d");
+
+      function measureMergedWord(value) {
+        if (!value || !mergedTextContext) {
+          return 12;
+        }
+        const sample = facets[0]?.wordElement;
+        const fontFamily = sample
+          ? getComputedStyle(sample).fontFamily
+          : "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        const fontSize = 11;
+        const letterSpacing = fontSize * -0.04 * Math.max(0, value.length - 1);
+        mergedTextContext.font = `750 ${fontSize}px ${fontFamily}`;
+        return Math.max(12, mergedTextContext.measureText(value).width + letterSpacing + 8);
+      }
+
+      function getAdaptiveMergeGeometry(facet, tileStep) {
+        const maximumWidth = tileStep * facet.mergeTileCount * 1.012;
+        const totalWidth = Math.min(maximumWidth, measureMergedWord(facet.mergeValue));
+        const totalCharacters = Math.max(1, facet.mergeValue.length);
+        const segmentShare = facet.mergeSegmentLength / totalCharacters;
+        const precedingShare = facet.mergeCharactersBefore / totalCharacters;
+        const segmentBaseWidth = totalWidth * segmentShare;
+        const groupStart = facet.mergeCenterOffset * tileStep - totalWidth / 2;
+        const segmentCenter =
+          groupStart +
+          totalWidth * precedingShare +
+          segmentBaseWidth / 2;
+        const seamOverlap = facet.mergeTileCount > 1 ? 1.2 : 0;
+
+        return {
+          width: segmentBaseWidth + seamOverlap,
+          shift: segmentCenter - facet.mergeOffset * tileStep
+        };
+      }
+
+      function positionAdaptiveMergedFacet(facet, tileStep) {
+        const geometry = getAdaptiveMergeGeometry(facet, tileStep);
+        facet.element.style.width = `${geometry.width}px`;
+        facet.element.style.marginLeft = `${geometry.width / -2}px`;
+        facet.element.style.setProperty("--merge-tangent-shift", `${geometry.shift}px`);
+        sizeWord(facet, geometry.width);
+      }
+
+      function applyMergedSpan(tileRun, value) {
+        if (tileRun.length === 0) {
+          return;
+        }
+
+        const anchor = tileRun[0];
+        const tileWidth = anchor.renderWidth || anchor.element.getBoundingClientRect().width;
+        const tileStep = anchor.renderStepWidth || tileWidth / 0.965;
+        const hasHorizontalSpan =
+          Array.isArray(tileRun.spanOffsets) &&
+          tileRun.spanOffsets.length === tileRun.length;
+
+        if (tileRun.length === 1) {
+          clearMergedSpan(anchor);
+          anchor.value = value;
+          anchor.wordElement.textContent = value;
+          sizeWord(anchor, tileWidth);
+          return;
+        }
+
+        if (!hasHorizontalSpan && tileRun.length > 1) {
+          const segments = splitWordAcrossTiles(value);
+          tileRun.forEach((facet, index) => {
+            clearMergedSpan(facet);
+            facet.value = segments[index] || "";
+            facet.wordElement.textContent = segments[index] || "";
+            sizeWord(facet, facet.renderWidth || tileWidth);
+          });
+          return;
+        }
+
+        const centerOffset = tileRun.spanShiftTiles || 0;
+        const leftOffset = Math.min(...tileRun.spanOffsets);
+        const rightOffset = Math.max(...tileRun.spanOffsets);
+        const segments = splitWordAcrossTiles(value);
+        let charactersBefore = 0;
+        const orderedFacets = tileRun
+          .map((facet, index) => ({
+            facet,
+            index,
+            offset: tileRun.spanOffsets[index]
+          }))
+          .sort((a, b) => a.offset - b.offset);
+
+        orderedFacets.forEach(({ facet, index, offset }, segmentIndex) => {
+          clearMergedSpan(facet);
+          const segment = segments[segmentIndex] || "";
+          facet.value = segment;
+          facet.wordElement.textContent = segment;
+          facet.element.classList.add(index === 0 ? "merge-anchor" : "merge-continuation");
+          facet.element.classList.toggle("merge-left-edge", offset === leftOffset);
+          facet.element.classList.toggle("merge-right-edge", offset === rightOffset);
+          facet.mergeTileCount = tileRun.length;
+          facet.mergeOffset = offset;
+          facet.mergeCenterOffset = centerOffset;
+          facet.mergeValue = value;
+          facet.mergeSegmentLength = segment.length;
+          facet.mergeCharactersBefore = charactersBefore;
+          positionAdaptiveMergedFacet(facet, tileStep);
+          charactersBefore += segment.length;
+        });
+      }
+
+      function sizeWord(facet, facetWidth) {
+        if (!facet.value) {
+          facet.wordElement.style.fontSize = "";
+          return;
+        }
+        const availableWidth = Math.max(12, facetWidth - 4);
+        const fittedSize = availableWidth / Math.max(1, facet.value.length * 0.61);
+        facet.wordElement.style.fontSize = `${Math.max(6, Math.min(11, fittedSize))}px`;
+      }
+
+      function positionFacets() {
+        const ballSize = ball.getBoundingClientRect().width;
+        const radius = ballSize * 0.405;
+        const latitudeStepRadians = LATITUDE_STEP * Math.PI / 180;
+        const facetHeight = Math.max(12, radius * latitudeStepRadians * 0.965);
+
+        facets.forEach((facet) => {
+          const latitudeRadians = Math.abs(facet.latitude) * Math.PI / 180;
+          const ringCircumference = 2 * Math.PI * radius * Math.cos(latitudeRadians);
+          const facetStepWidth = Math.max(12, ringCircumference / facet.ringCount);
+          const facetWidth = facetStepWidth * 0.965;
+          const transform =
+            `rotateY(${facet.longitude}deg) rotateX(${-facet.latitude}deg) translateZ(${radius}px)`;
+
+          facet.element.style.height = `${facetHeight}px`;
+          facet.element.style.marginTop = `${facetHeight / -2}px`;
+          facet.element.style.setProperty("--facet-transform", transform);
+          facet.renderWidth = facetWidth;
+          facet.renderStepWidth = facetStepWidth;
+          if (facet.mergeTileCount > 1) {
+            positionAdaptiveMergedFacet(facet, facetStepWidth);
+          } else {
+            facet.element.style.removeProperty("--merge-tangent-shift");
+            facet.element.style.width = `${facetWidth}px`;
+            facet.element.style.marginLeft = `${facetWidth / -2}px`;
+            sizeWord(facet, facetWidth);
+          }
+        });
+      }
+
+      function rotateTo(facet) {
+        if (!facet) {
+          return;
+        }
+        ball.style.transform = `rotateX(${facet.latitude}deg) rotateY(${-facet.longitude}deg)`;
+      }
+
+      function setActiveFacet(index) {
+        allocation.forEach((facet) => facet.element.classList.remove("is-active", "has-draft"));
+        draftFacets = [];
+        if (index < allocation.length) {
+          const facet = allocation[index];
+          facet.value = "";
+          facet.wordElement.textContent = "";
+          facet.element.classList.add("is-active");
+          draftFacets = [facet];
+          rotateTo(facet);
+        }
+      }
+
+      function formatCount(value) {
+        return String(value).padStart(2, "0");
+      }
+
+      function setFieldMessage(message, isError = false) {
+        window.clearTimeout(messageTimer);
+        fieldMessage.textContent = message;
+        fieldMessage.classList.toggle("is-error", isError);
+        wordInput.setAttribute("aria-invalid", isError ? "true" : "false");
+      }
+
+      function setTemporaryMessage(message, isError = false) {
+        setFieldMessage(message, isError);
+        messageTimer = window.setTimeout(() => {
+          setFieldMessage("space locks the word and turns the ball");
+        }, 1400);
+      }
+
+      function announce(message) {
+        liveRegion.textContent = "";
+        window.setTimeout(() => {
+          liveRegion.textContent = message;
+        }, 20);
+      }
+
+      function pulseKey(key) {
+        const label =
+          key === " " ? "space" :
+          key === "Backspace" ? "⌫" :
+          key === "Escape" ? "esc" :
+          key === "Enter" ? "↵" :
+          key.length === 1 ? key.toLowerCase() :
+          "key";
+
+        keyEcho.textContent = label;
+        keyEcho.classList.remove("is-hit");
+        void keyEcho.offsetWidth;
+        keyEcho.classList.add("is-hit");
+      }
+
+      function renderWordList() {
+        wordList.replaceChildren();
+        emptyState.hidden = words.length > 0;
+        wordList.hidden = words.length === 0;
+
+        words.forEach((entry, index) => {
+          const item = document.createElement("li");
+          const number = document.createElement("span");
+          const text = document.createElement("span");
+          const marker = document.createElement("span");
+
+          item.className = "word-item";
+          number.className = "word-index";
+          number.textContent = formatCount(index + 1);
+          text.className = "word-text";
+          text.textContent = entry;
+          marker.className = "word-marker";
+          marker.setAttribute("aria-hidden", "true");
+
+          item.append(number, text, marker);
+          wordList.appendChild(item);
+        });
+
+        if (words.length > 0) {
+          wordList.scrollLeft = wordList.scrollWidth;
+        }
+      }
+
+      function updateInterface() {
+        const complete = words.length >= SLOT_COUNT || activeSlot >= allocation.length;
+        const countText = `${formatCount(words.length)} / ${SLOT_COUNT}`;
+        const hasDraft = Boolean(wordInput.value);
+        const tilesNeeded = Math.max(1, splitWordAcrossTiles(wordInput.value).length);
+
+        topCount.textContent = `${words.length} of ${SLOT_COUNT} set`;
+        ledgerCount.textContent = countText;
+        resetButton.disabled = words.length === 0 && !hasDraft;
+        wordInput.disabled = complete;
+        submitButton.disabled = complete;
+        tryButtons.forEach((button) => {
+          button.disabled = complete;
+        });
+        ball.setAttribute(
+          "aria-label",
+          complete
+            ? `A faceted disco ball with all ${SLOT_COUNT} words set`
+            : `A faceted disco ball with ${words.length} words set; the next word has ${tilesNeeded} active tile${tilesNeeded === 1 ? "" : "s"}`
+        );
+
+        composerStatus.classList.remove("is-busy");
+        composerStatus.classList.toggle("is-complete", complete);
+
+        if (complete) {
+          facetReadout.textContent = `all ${SLOT_COUNT} words set`;
+          stageAction.textContent = "composition complete";
+          stageNote.textContent = "clear the ball to begin again";
+          composerStatus.textContent = "ball complete";
+          slotMeta.textContent = "capacity · 18 words";
+          submitLabel.textContent = "ball complete";
+          setFieldMessage("all 18 words are set — clear to begin again");
+        } else {
+          facetReadout.textContent = `word ${formatCount(words.length + 1)} / ${SLOT_COUNT}`;
+          stageAction.textContent = hasDraft ? "typing on this facet" : "ready — just type";
+          stageNote.textContent = hasDraft
+            ? `${tilesNeeded} tile${tilesNeeded === 1 ? "" : "s"} merged for this word`
+            : "longer words merge adjacent tiles";
+          composerStatus.textContent = hasDraft ? "typing" : "ready — just type";
+          slotMeta.textContent = `${tilesNeeded} tile${tilesNeeded === 1 ? "" : "s"} active`;
+          submitLabel.textContent = "space to set";
+          if (!fieldMessage.classList.contains("is-error")) {
+            setFieldMessage(hasDraft ? "press space when the word is ready" : "space locks the word and turns the ball");
+          }
+        }
+      }
+
+      function syncDraft() {
+        if (words.length >= SLOT_COUNT || activeSlot >= allocation.length) {
+          return;
+        }
+
+        const value = wordInput.value.slice(0, 12);
+        const segments = splitWordAcrossTiles(value);
+        const tileCount = Math.max(1, segments.length);
+
+        draftFacets.forEach((facet) => {
+          if (!usedFacetIndexes.has(facet.index)) {
+            facet.value = "";
+            facet.wordElement.textContent = "";
+            facet.wordElement.style.fontSize = "";
+            facet.element.classList.remove("is-active", "has-draft");
+            clearMergedSpan(facet);
+          }
+        });
+
+        draftFacets = getTileRun(tileCount);
+        draftFacets.forEach((facet) => {
+          facet.element.classList.add("is-active");
+          facet.element.classList.toggle("has-draft", value.length > 0);
+        });
+        applyMergedSpan(draftFacets, value);
+
+        if (draftFacets[0]) {
+          rotateTo(draftFacets[0]);
+        }
+        updateInterface();
+      }
+
+      function validateWord(rawValue) {
+        const value = rawValue.trim();
+        if (!value) {
+          return {
+            valid: false,
+            message: "Type one word before setting a facet."
+          };
+        }
+        if (/\s/.test(value)) {
+          return {
+            valid: false,
+            message: "Use one word only. Remove spaces, then try again."
+          };
+        }
+        if (value.length > 12) {
+          return {
+            valid: false,
+            message: "Keep the word to 12 characters so it remains readable on its facet."
+          };
+        }
+        return { valid: true, value };
+      }
+
+      function commitWord(value) {
+        const currentNumber = words.length + 1;
+        const segments = splitWordAcrossTiles(value);
+        const tileRun = getTileRun(segments.length);
+
+        tileRun.forEach((facet) => {
+          facet.element.classList.remove("is-active", "is-dark", "has-draft");
+          facet.element.classList.add("has-word", "just-placed");
+          usedFacetIndexes.add(facet.index);
+        });
+        applyMergedSpan(tileRun, value);
+
+        words.push(value);
+        activeSlot = allocation.findIndex((facet) => !usedFacetIndexes.has(facet.index));
+        if (activeSlot < 0) {
+          activeSlot = allocation.length;
+        }
+        draftFacets = [];
+        isSpinning = false;
+        wordInput.value = "";
+        setFieldMessage("space locks the word and turns the ball");
+        renderWordList();
+        announce(`${value} set as word ${currentNumber} across ${tileRun.length} tile${tileRun.length === 1 ? "" : "s"}.`);
+
+        window.clearTimeout(turnTimer);
+        if (words.length < SLOT_COUNT && activeSlot < allocation.length) {
+          allocation[activeSlot].value = "";
+          allocation[activeSlot].wordElement.textContent = "";
+          setActiveFacet(activeSlot);
+          updateInterface();
+          wordInput.focus({ preventScroll: true });
+          turnTimer = window.setTimeout(() => {
+            tileRun.forEach((facet) => facet.element.classList.remove("just-placed"));
+          }, 340);
+        } else {
+          tileRun.forEach((facet) => facet.element.classList.remove("just-placed"));
+          updateInterface();
+          announce(`All ${SLOT_COUNT} facets are set. The composition is complete.`);
+          resetButton.focus({ preventScroll: true });
+        }
+      }
+
+      function resetBall() {
+        allocation.forEach((facet) => {
+          facet.value = "";
+          facet.wordElement.textContent = "";
+          facet.wordElement.style.fontSize = "";
+          facet.element.classList.remove("has-word", "just-placed", "is-active", "has-draft", "is-dark");
+          facet.element.classList.toggle("is-dark", darkToneIndexes.has(facet.toneIndex));
+          clearMergedSpan(facet);
+        });
+        words.length = 0;
+        usedFacetIndexes.clear();
+        draftFacets = [];
+        activeSlot = 0;
+        isSpinning = false;
+        wordInput.value = "";
+        setFieldMessage("space locks the word and turns the ball");
+        setActiveFacet(0);
+        renderWordList();
+        updateInterface();
+        announce("The disco ball is clear. Facet 1 is ready.");
+        wordInput.focus({ preventScroll: true });
+      }
+
+      wordForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        setTemporaryMessage("use space to set the word");
+        announce("Use Space to set the word.");
+      });
+
+      wordInput.addEventListener("keydown", (event) => {
+        if (isComposing || event.isComposing) {
+          return;
+        }
+
+        pulseKey(event.key);
+
+        if (event.key === " ") {
+          event.preventDefault();
+          const result = validateWord(wordInput.value);
+          if (!result.valid) {
+            setTemporaryMessage("type a word before pressing space", true);
+            announce("Type a word before pressing space.");
+            return;
+          }
+          commitWord(result.value);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          setTemporaryMessage("use space to set the word");
+          announce("Use Space to set the word.");
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          wordInput.value = "";
+          syncDraft();
+          setTemporaryMessage("draft cleared");
+          announce("Current draft cleared.");
+        }
+      });
+
+      wordInput.addEventListener("input", () => {
+        if (isComposing) {
+          return;
+        }
+
+        if (/\s/.test(wordInput.value)) {
+          const value = wordInput.value.split(/\s+/)[0];
+          wordInput.value = value;
+          syncDraft();
+          if (value) {
+            pulseKey(" ");
+            commitWord(value);
+          }
+          return;
+        }
+
+        if (fieldMessage.classList.contains("is-error")) {
+          setFieldMessage("space locks the word and turns the ball");
+        }
+        syncDraft();
+      });
+
+      wordInput.addEventListener("compositionstart", () => {
+        isComposing = true;
+      });
+
+      wordInput.addEventListener("compositionend", () => {
+        isComposing = false;
+        syncDraft();
+      });
+
+      wordInput.addEventListener("focus", () => {
+        document.body.classList.add("has-typing-focus");
+      });
+
+      wordInput.addEventListener("blur", () => {
+        document.body.classList.remove("has-typing-focus");
+      });
+
+      tryButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          wordInput.value = button.dataset.word || "";
+          syncDraft();
+          wordInput.focus();
+        });
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (
+          resetDialog.open ||
+          wordInput.disabled ||
+          document.activeElement === wordInput ||
+          document.activeElement instanceof HTMLButtonElement ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
+          return;
+        }
+
+        if (event.key === " " || event.key === "Backspace" || event.key === "Escape" || event.key.length === 1) {
+          event.preventDefault();
+          wordInput.focus({ preventScroll: true });
+
+          if (event.key === " ") {
+            pulseKey(" ");
+            const result = validateWord(wordInput.value);
+            if (result.valid) {
+              commitWord(result.value);
+            } else {
+              setTemporaryMessage("type a word before pressing space", true);
+            }
+          } else if (event.key === "Backspace") {
+            pulseKey(event.key);
+            wordInput.value = wordInput.value.slice(0, -1);
+            syncDraft();
+          } else if (event.key === "Escape") {
+            pulseKey(event.key);
+            wordInput.value = "";
+            syncDraft();
+          } else if (wordInput.value.length < 12) {
+            pulseKey(event.key);
+            wordInput.value += event.key;
+            syncDraft();
+          }
+        }
+      });
+
+      document.querySelector(".stage").addEventListener("pointerdown", () => {
+        if (activeSlot < SLOT_COUNT) {
+          wordInput.focus({ preventScroll: true });
+        }
+      });
+
+      resetButton.addEventListener("click", () => {
+        if (typeof resetDialog.showModal === "function") {
+          resetDialog.showModal();
+          cancelReset.focus();
+        } else if (window.confirm("Clear every word from the disco ball?")) {
+          resetBall();
+        }
+      });
+
+      cancelReset.addEventListener("click", () => {
+        resetDialog.close();
+        resetButton.focus();
+      });
+
+      confirmReset.addEventListener("click", () => {
+        resetDialog.close();
+        resetBall();
+      });
+
+      resetDialog.addEventListener("click", (event) => {
+        const bounds = resetDialog.getBoundingClientRect();
+        const inside =
+          event.clientX >= bounds.left &&
+          event.clientX <= bounds.right &&
+          event.clientY >= bounds.top &&
+          event.clientY <= bounds.bottom;
+        if (!inside) {
+          resetDialog.close();
+          resetButton.focus();
+        }
+      });
+
+      window.addEventListener("resize", () => {
+        window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(positionFacets);
+      });
+
+      buildFacets();
+      positionFacets();
+      setActiveFacet(0);
+      renderWordList();
+      updateInterface();
+      syncDraft();
+      window.setTimeout(() => {
+        wordInput.focus({ preventScroll: true });
+      }, 0);
+    })();
+  </script>
+  <script>
+    (() => {
+      "use strict";
+
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const LATITUDE_STEP = 10;
+      const EQUATOR_TILE_COUNT = 36;
+      const SPHERE_RADIUS = 405;
+      const CAMERA_DISTANCE = 2000;
+      const SURFACE_CENTER = 500;
+      const SURFACE_FONT_SIZE = 28;
+      const WORD_GAP = 12;
+      const ROW_LEFT = 185;
+      const ROW_RIGHT = 815;
+      const ACTIVE_CENTER = 500;
+      const ACTIVE_TRAIL_WIDTH = 276;
+      const MIN_PATCH_WIDTH = 54;
+      const MAX_PATCH_WIDTH = 202;
+      const PATCH_HALF_LATITUDE = 5;
+      const LINE_LATITUDES = [-36, -24, -12, 0, 12, 24, 36];
+      const CHARS_PER_FACET = 4;
+      const SENTENCE_RING_INDEXES = [6, 7, 8, 9, 10, 11, 12];
+      const facetTones = ["#ffffff", "#f5f6f2", "#eaede8", "#dde2dd", "#d2d8d2", "#c8cfc9"];
+      const darkToneIndexes = new Set();
+      const ringConfig = Array.from({ length: 18 }, (_, index) => {
+        const latitude = -85 + index * LATITUDE_STEP;
+        const latitudeRadians = latitude * Math.PI / 180;
+        return {
+          latitude,
+          count: Math.max(3, Math.round(EQUATOR_TILE_COUNT * Math.cos(latitudeRadians)))
+        };
+      });
+
+      const ball = document.querySelector("#ball");
+      const ballWrap = document.querySelector(".ball-wrap");
+      const surfaceWords = document.querySelector("#surface-words");
+      const wordForm = document.querySelector("#word-form");
+      const wordInput = document.querySelector("#word-input");
+      const submitButton = document.querySelector("#submit-button");
+      const submitLabel = document.querySelector("#submit-label");
+      const fieldMessage = document.querySelector("#field-message");
+      const facetReadout = document.querySelector("#facet-readout");
+      const stageAction = document.querySelector("#stage-action");
+      const stageNote = document.querySelector("#stage-note");
+      const composerStatus = document.querySelector("#composer-status");
+      const slotMeta = document.querySelector("#slot-meta");
+      const topCount = document.querySelector("#top-count");
+      const ledgerCount = document.querySelector("#ledger-count");
+      const emptyState = document.querySelector("#empty-state");
+      const wordList = document.querySelector("#word-list");
+      const resetButton = document.querySelector("#reset-button");
+      const resetDialog = document.querySelector("#reset-dialog");
+      const cancelReset = document.querySelector("#cancel-reset");
+      const confirmReset = document.querySelector("#confirm-reset");
+      const liveRegion = document.querySelector("#live-region");
+      const keyEcho = document.querySelector("#key-echo");
+      const tryButtons = [...document.querySelectorAll(".try-word")];
+      const feelButtons = [...document.querySelectorAll("[data-feel-mode]")];
+      const soundToggle = document.querySelector("#sound-toggle");
+      const soundLabel = document.querySelector("#sound-label");
+
+      const facets = [];
+      const words = [];
+      const lineBreaks = [];
+      let sentenceRows = [];
+      let sentenceRowCapacity = 0;
+      const textCanvas = document.createElement("canvas");
+      const textContext = textCanvas.getContext("2d");
+      let currentLayout = [];
+      let flashIndex = -1;
+      let resizeFrame = 0;
+      let isComposing = false;
+      let turnTimer = 0;
+      let messageTimer = 0;
+      let animateNextRail = false;
+      let currentRotationX = 0;
+      let currentRotationY = 0;
+      let lineRotationBase = 0;
+      let isLineTransitioning = false;
+      let activeLineFull = false;
+      let lineTurnTimer = 0;
+      let lineLiftTimer = 0;
+      let trackingFrame = 0;
+      let wheelTimer = 0;
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const SOUND_PATHS = Object.freeze({
+        soft: "assets/sounds/candidates/soft-typewriter-click.wav",
+        key: "assets/sounds/candidates/laptop-key-press.wav",
+        clack: "assets/sounds/candidates/hard-laptop-key-press.wav",
+        glass: "assets/sounds/candidates/glass-interface-click.wav"
+      });
+      const FLOW_NOTES = [220, 246.94, 293.66, 329.63, 392, 329.63, 293.66, 246.94];
+      const FEEL_STORAGE_KEY = "type-disco:feel-mode";
+      const MUTE_STORAGE_KEY = "type-disco:sound-muted";
+      const FLOW_PAUSE_WINDOW = 1500;
+      let feelMode = "mechanical";
+      let soundMuted = false;
+      let soundDataPromise = null;
+      let audioReadyPromise = null;
+      let audioContext = null;
+      let masterGain = null;
+      let compressor = null;
+      let flowPadGain = null;
+      const soundData = new Map();
+      const soundBuffers = new Map();
+      const activeVoices = [];
+      let mechanicalAlternate = false;
+      let flowStreak = 0;
+      let flowStep = 0;
+      let flowLastKeyAt = 0;
+      let flowIdleTimer = 0;
+      let lastFlowNoteAt = 0;
+
+      try {
+        const storedFeel = window.localStorage.getItem(FEEL_STORAGE_KEY);
+        if (storedFeel === "flow" || storedFeel === "mechanical") {
+          feelMode = storedFeel;
+        }
+        soundMuted =
+          window.localStorage.getItem(MUTE_STORAGE_KEY) === "true";
+      } catch (_) {}
+
+      function clamp(value, minimum, maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+      }
+
+      function rememberSetting(key, value) {
+        try {
+          window.localStorage.setItem(key, String(value));
+        } catch (_) {}
+      }
+
+      function primeAudioFiles() {
+        if (soundDataPromise) {
+          return soundDataPromise;
+        }
+        soundDataPromise = Promise.all(
+          Object.entries(SOUND_PATHS).map(async ([name, path]) => {
+            const response = await window.fetch(path, { cache: "force-cache" });
+            if (!response.ok) {
+              throw new Error(`Unable to load ${name} sound`);
+            }
+            soundData.set(name, await response.arrayBuffer());
+          })
+        )
+          .then(() => true)
+          .catch(() => false);
+        return soundDataPromise;
+      }
+
+      function createAudioGraph() {
+        if (audioContext) {
+          return true;
+        }
+        const AudioContextClass =
+          window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) {
+          return false;
+        }
+
+        audioContext = new AudioContextClass({ latencyHint: "interactive" });
+        compressor = audioContext.createDynamicsCompressor();
+        compressor.threshold.value = -20;
+        compressor.knee.value = 14;
+        compressor.ratio.value = 5;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.18;
+
+        masterGain = audioContext.createGain();
+        masterGain.gain.value = soundMuted ? 0.0001 : 0.72;
+        masterGain.connect(compressor);
+        compressor.connect(audioContext.destination);
+
+        flowPadGain = audioContext.createGain();
+        flowPadGain.gain.value = 0.0001;
+        flowPadGain.connect(masterGain);
+
+        [110, 164.81].forEach((frequency, index) => {
+          const oscillator = audioContext.createOscillator();
+          const oscillatorGain = audioContext.createGain();
+          oscillator.type = index === 0 ? "sine" : "triangle";
+          oscillator.frequency.value = frequency;
+          oscillatorGain.gain.value = index === 0 ? 0.5 : 0.22;
+          oscillator.connect(oscillatorGain);
+          oscillatorGain.connect(flowPadGain);
+          oscillator.start();
+        });
+        return true;
+      }
+
+      function ensureAudio() {
+        if (!createAudioGraph()) {
+          return Promise.resolve(false);
+        }
+
+        const resumePromise =
+          audioContext.state === "suspended"
+            ? audioContext.resume().catch(() => undefined)
+            : Promise.resolve();
+
+        if (!audioReadyPromise) {
+          audioReadyPromise = (async () => {
+            await primeAudioFiles();
+            for (const [name, data] of soundData.entries()) {
+              try {
+                const decoded = await audioContext.decodeAudioData(data.slice(0));
+                soundBuffers.set(name, decoded);
+              } catch (_) {}
+            }
+            return true;
+          })();
+        }
+
+        return Promise.all([resumePromise, audioReadyPromise]).then(
+          ([, ready]) => ready
+        );
+      }
+
+      function trackVoice(node) {
+        while (activeVoices.length >= 18) {
+          const oldest = activeVoices.shift();
+          try {
+            oldest.stop();
+          } catch (_) {}
+        }
+        activeVoices.push(node);
+        node.addEventListener(
+          "ended",
+          () => {
+            const index = activeVoices.indexOf(node);
+            if (index >= 0) {
+              activeVoices.splice(index, 1);
+            }
+          },
+          { once: true }
+        );
+      }
+
+      function startSample(name, gainValue, playbackRate = 1) {
+        if (
+          soundMuted ||
+          !audioContext ||
+          !masterGain ||
+          !soundBuffers.has(name)
+        ) {
+          return;
+        }
+        const source = audioContext.createBufferSource();
+        const voiceGain = audioContext.createGain();
+        source.buffer = soundBuffers.get(name);
+        source.playbackRate.value = playbackRate;
+        voiceGain.gain.value = gainValue;
+        source.connect(voiceGain);
+        voiceGain.connect(masterGain);
+        trackVoice(source);
+        source.start();
+      }
+
+      function playSample(name, gainValue, playbackRate = 1) {
+        if (soundMuted) {
+          return;
+        }
+        void ensureAudio().then((ready) => {
+          if (ready && !soundMuted) {
+            startSample(name, gainValue, playbackRate);
+          }
+        });
+      }
+
+      function startFlowTone(frequency, gainValue = 0.018, duration = 0.28) {
+        if (soundMuted || !audioContext || !masterGain) {
+          return;
+        }
+        const now = audioContext.currentTime;
+        const oscillator = audioContext.createOscillator();
+        const toneGain = audioContext.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(frequency, now);
+        toneGain.gain.setValueAtTime(0.0001, now);
+        toneGain.gain.exponentialRampToValueAtTime(gainValue, now + 0.014);
+        toneGain.gain.exponentialRampToValueAtTime(
+          0.0001,
+          now + duration
+        );
+        oscillator.connect(toneGain);
+        toneGain.connect(masterGain);
+        trackVoice(oscillator);
+        oscillator.start(now);
+        oscillator.stop(now + duration + 0.02);
+      }
+
+      function exciteFlowPad() {
+        if (soundMuted || !audioContext || !flowPadGain) {
+          return;
+        }
+        const now = audioContext.currentTime;
+        const target = clamp(0.006 + flowStreak * 0.0012, 0.008, 0.019);
+        const current = Math.max(0.0001, flowPadGain.gain.value);
+        flowPadGain.gain.cancelScheduledValues(now);
+        flowPadGain.gain.setValueAtTime(current, now);
+        flowPadGain.gain.linearRampToValueAtTime(target, now + 0.08);
+        flowPadGain.gain.setTargetAtTime(0.0001, now + 1.08, 0.38);
+      }
+
+      function endFlowPhrase() {
+        window.clearTimeout(flowIdleTimer);
+        flowIdleTimer = 0;
+        flowStreak = 0;
+        flowStep = 0;
+        document.body.dataset.flowActive = "false";
+        if (audioContext && flowPadGain) {
+          const now = audioContext.currentTime;
+          const current = Math.max(0.0001, flowPadGain.gain.value);
+          flowPadGain.gain.cancelScheduledValues(now);
+          flowPadGain.gain.setValueAtTime(current, now);
+          flowPadGain.gain.setTargetAtTime(0.0001, now, 0.22);
+        }
+      }
+
+      function registerFlowActivity(accent = false) {
+        const now = window.performance.now();
+        if (!flowLastKeyAt || now - flowLastKeyAt > FLOW_PAUSE_WINDOW) {
+          flowStreak = 0;
+          flowStep = 0;
+        }
+        flowLastKeyAt = now;
+        flowStreak = Math.min(12, flowStreak + 1);
+        document.body.dataset.flowActive = "true";
+        window.clearTimeout(flowIdleTimer);
+        flowIdleTimer = window.setTimeout(
+          endFlowPhrase,
+          FLOW_PAUSE_WINDOW
+        );
+
+        void ensureAudio().then((ready) => {
+          if (!ready || soundMuted || feelMode !== "flow") {
+            return;
+          }
+          if (flowStreak >= 2) {
+            exciteFlowPad();
+          }
+          if (accent && flowStreak >= 2) {
+            startFlowTone(220, 0.024, 0.38);
+          } else if (
+            flowStreak >= 3 &&
+            now - lastFlowNoteAt >= 65
+          ) {
+            const note = FLOW_NOTES[flowStep % FLOW_NOTES.length];
+            flowStep += 1;
+            lastFlowNoteAt = now;
+            startFlowTone(note, 0.016, 0.24);
+          }
+        });
+      }
+
+      function playInteractionSound(key) {
+        const isCharacter = key.length === 1 && key !== " ";
+        const isEditingKey = key === "Backspace";
+        const isCommitKey = key === " ";
+        const isLineKey = key === "Enter";
+        if (
+          !isCharacter &&
+          !isEditingKey &&
+          !isCommitKey &&
+          !isLineKey
+        ) {
+          return;
+        }
+
+        if (feelMode === "flow") {
+          registerFlowActivity(isCommitKey || isLineKey);
+          if (isCommitKey) {
+            playSample("glass", 0.18, 1);
+          } else if (isLineKey) {
+            playSample("glass", 0.22, 0.84);
+          } else {
+            playSample(
+              "soft",
+              0.09,
+              0.97 + Math.random() * 0.06
+            );
+          }
+          return;
+        }
+
+        if (isCommitKey || isLineKey) {
+          playSample("clack", isLineKey ? 0.32 : 0.27, isLineKey ? 0.82 : 0.92);
+          return;
+        }
+        mechanicalAlternate = !mechanicalAlternate;
+        playSample(
+          mechanicalAlternate ? "key" : "clack",
+          mechanicalAlternate ? 0.18 : 0.15,
+          0.96 + Math.random() * 0.07
+        );
+      }
+
+      function updateSoundControl() {
+        soundToggle.classList.toggle("is-muted", soundMuted);
+        soundToggle.setAttribute("aria-pressed", String(soundMuted));
+        soundToggle.setAttribute(
+          "aria-label",
+          soundMuted ? "Turn sound on" : "Mute sound"
+        );
+        soundLabel.textContent = soundMuted ? "sound off" : "sound on";
+      }
+
+      function applyFeelMode(
+        nextMode,
+        {
+          announceChange = true,
+          preview = false,
+          refresh = true
+        } = {}
+      ) {
+        if (nextMode !== "flow" && nextMode !== "mechanical") {
+          return;
+        }
+        feelMode = nextMode;
+        document.body.dataset.feelMode = feelMode;
+        feelButtons.forEach((button) => {
+          const selected = button.dataset.feelMode === feelMode;
+          button.setAttribute("aria-pressed", String(selected));
+        });
+        rememberSetting(FEEL_STORAGE_KEY, feelMode);
+        if (feelMode === "mechanical") {
+          endFlowPhrase();
+        } else {
+          document.body.dataset.flowActive = "false";
+        }
+        if (refresh) {
+          updateInterface();
+        }
+        if (announceChange) {
+          announce(
+            feelMode === "flow"
+              ? "Flow mode selected. Continuous typing builds a gentle musical phrase while the ball glides."
+              : "Mechanical mode selected. Keys click and clack while the ball turns directly."
+          );
+        }
+        if (preview && !soundMuted) {
+          if (feelMode === "flow") {
+            playSample("soft", 0.1, 1);
+            void ensureAudio().then((ready) => {
+              if (ready && !soundMuted && feelMode === "flow") {
+                startFlowTone(293.66, 0.02, 0.32);
+              }
+            });
+          } else {
+            playSample("key", 0.2, 1);
+          }
+        }
+      }
+
+      function radians(value) {
+        return value * Math.PI / 180;
+      }
+
+      function projectToSurface(latitude, longitude) {
+        const latitudeRadians = radians(latitude);
+        const longitudeRadians = radians(longitude);
+        const cosineLatitude = Math.cos(latitudeRadians);
+        const x = SPHERE_RADIUS * cosineLatitude * Math.sin(longitudeRadians);
+        const y = SPHERE_RADIUS * Math.sin(latitudeRadians);
+        const z = SPHERE_RADIUS * cosineLatitude * Math.cos(longitudeRadians);
+        const scale = CAMERA_DISTANCE / (CAMERA_DISTANCE - z);
+        return {
+          x: SURFACE_CENTER + x * scale,
+          y: SURFACE_CENTER + y * scale
+        };
+      }
+
+      function longitudeForX(latitude, targetX) {
+        let low = -78;
+        let high = 78;
+        for (let iteration = 0; iteration < 26; iteration += 1) {
+          const middle = (low + high) / 2;
+          if (projectToSurface(latitude, middle).x < targetX) {
+            low = middle;
+          } else {
+            high = middle;
+          }
+        }
+        return (low + high) / 2;
+      }
+
+      function createSvgElement(name, attributes = {}) {
+        const element = document.createElementNS(SVG_NS, name);
+        Object.entries(attributes).forEach(([key, value]) => {
+          element.setAttribute(key, String(value));
+        });
+        return element;
+      }
+
+      function pointsToPath(points, close = false) {
+        if (points.length === 0) {
+          return "";
+        }
+        const commands = points.map((point, index) =>
+          `${index === 0 ? "M" : "L"}${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+        );
+        return `${commands.join(" ")}${close ? " Z" : ""}`;
+      }
+
+      function sampleLongitude(latitude, longitudeStart, longitudeEnd, count = 18) {
+        return Array.from({ length: count + 1 }, (_, index) => {
+          const progress = index / count;
+          return projectToSurface(
+            latitude,
+            longitudeStart + (longitudeEnd - longitudeStart) * progress
+          );
+        });
+      }
+
+      function sampleLatitude(longitude, latitudeStart, latitudeEnd, count = 5) {
+        return Array.from({ length: count + 1 }, (_, index) => {
+          const progress = index / count;
+          return projectToSurface(
+            latitudeStart + (latitudeEnd - latitudeStart) * progress,
+            longitude
+          );
+        });
+      }
+
+      function buildPatchPath(placement) {
+        const topLatitude = placement.latitude - PATCH_HALF_LATITUDE;
+        const bottomLatitude = placement.latitude + PATCH_HALF_LATITUDE;
+        const top = sampleLongitude(
+          topLatitude,
+          placement.longitudeStart,
+          placement.longitudeEnd
+        );
+        const right = sampleLatitude(
+          placement.longitudeEnd,
+          topLatitude,
+          bottomLatitude
+        ).slice(1);
+        const bottom = sampleLongitude(
+          bottomLatitude,
+          placement.longitudeEnd,
+          placement.longitudeStart
+        ).slice(1);
+        const left = sampleLatitude(
+          placement.longitudeStart,
+          bottomLatitude,
+          topLatitude
+        ).slice(1);
+        return pointsToPath([...top, ...right, ...bottom, ...left], true);
+      }
+
+      function buildTextPath(placement) {
+        const horizontalPadding = Math.min(16, placement.width * 0.22);
+        const startX = placement.startX + horizontalPadding;
+        const endX = placement.endX - horizontalPadding;
+        const latitude = placement.latitude + 1.15;
+        return pointsToPath(
+          sampleLongitude(
+            latitude,
+            longitudeForX(latitude, startX),
+            longitudeForX(latitude, endX),
+            22
+          )
+        );
+      }
+
+      function measureWord(value) {
+        const printableValue = value || " ";
+        if (!textContext) {
+          return MIN_PATCH_WIDTH;
+        }
+        textContext.font =
+          `750 ${SURFACE_FONT_SIZE}px ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace`;
+        const letterSpacing =
+          SURFACE_FONT_SIZE * -0.04 * Math.max(0, printableValue.length - 1);
+        const measuredWidth =
+          textContext.measureText(printableValue.toUpperCase()).width +
+          letterSpacing +
+          28;
+        return clamp(measuredWidth, MIN_PATCH_WIDTH, MAX_PATCH_WIDTH);
+      }
+
+      function fittedFontSize(value, width) {
+        if (!value) {
+          return SURFACE_FONT_SIZE;
+        }
+        const availableWidth = Math.max(24, width - 24);
+        const fitted = availableWidth / Math.max(1, value.length * 0.61);
+        return clamp(fitted, 20, SURFACE_FONT_SIZE);
+      }
+
+      function packRows(entries, maximumWidth) {
+        const rows = [];
+        let row = [];
+        let rowWidth = 0;
+
+        entries.forEach((entry) => {
+          const width = measureWord(entry.value);
+          const nextWidth = row.length ? rowWidth + WORD_GAP + width : width;
+          if (row.length && nextWidth > maximumWidth) {
+            rows.push({ entries: row, width: rowWidth });
+            row = [];
+            rowWidth = 0;
+          }
+          row.push({ entry, width });
+          rowWidth = rowWidth ? rowWidth + WORD_GAP + width : width;
+        });
+
+        if (row.length) {
+          rows.push({ entries: row, width: rowWidth });
+        }
+        return rows;
+      }
+
+      function createPlacement(entry, row, startX, width, index) {
+        const latitude = LINE_LATITUDES[Math.min(row, LINE_LATITUDES.length - 1)];
+        const endX = startX + width;
+        return {
+          ...entry,
+          index,
+          row,
+          latitude,
+          startX,
+          endX,
+          width,
+          centerX: (startX + endX) / 2,
+          longitudeStart: longitudeForX(latitude, startX),
+          longitudeEnd: longitudeForX(latitude, endX)
+        };
+      }
+
+      function layoutSentence(entries) {
+        const placements = [];
+        const draft = entries.find((entry) => entry.draft);
+        const committed = entries.filter((entry) => entry.committed);
+        const fullRowWidth = ROW_RIGHT - ROW_LEFT;
+        let placementIndex = 0;
+
+        if (!draft) {
+          packRows(committed, fullRowWidth).forEach((packedRow, rowIndex) => {
+            let cursor = ACTIVE_CENTER - packedRow.width / 2;
+            packedRow.entries.forEach(({ entry, width }) => {
+              placements.push(
+                createPlacement(entry, rowIndex, cursor, width, placementIndex++)
+              );
+              cursor += width + WORD_GAP;
+            });
+          });
+          return placements;
+        }
+
+        const trailing = [];
+        let trailingWidth = 0;
+        for (let index = committed.length - 1; index >= 0; index -= 1) {
+          const entry = committed[index];
+          const width = measureWord(entry.value);
+          const proposedWidth = trailing.length
+            ? trailingWidth + WORD_GAP + width
+            : width;
+          if (proposedWidth > ACTIVE_TRAIL_WIDTH) {
+            break;
+          }
+          trailing.unshift({ entry, width });
+          trailingWidth = proposedWidth;
+        }
+
+        const settledCount = committed.length - trailing.length;
+        const settledRows = packRows(committed.slice(0, settledCount), fullRowWidth);
+        settledRows.forEach((packedRow, rowIndex) => {
+          let cursor = ACTIVE_CENTER - packedRow.width / 2;
+          packedRow.entries.forEach(({ entry, width }) => {
+            placements.push(
+              createPlacement(entry, rowIndex, cursor, width, placementIndex++)
+            );
+            cursor += width + WORD_GAP;
+          });
+        });
+
+        const activeRow = Math.min(settledRows.length, LINE_LATITUDES.length - 1);
+        const draftWidth = measureWord(draft.value);
+        const draftStart = ACTIVE_CENTER - draftWidth / 2;
+        let trailingCursor = draftStart - WORD_GAP - trailingWidth;
+
+        trailing.forEach(({ entry, width }) => {
+          placements.push(
+            createPlacement(entry, activeRow, trailingCursor, width, placementIndex++)
+          );
+          trailingCursor += width + WORD_GAP;
+        });
+        placements.push(
+          createPlacement(draft, activeRow, draftStart, draftWidth, placementIndex)
+        );
+        return placements;
+      }
+
+      function facetCountForWord(value) {
+        return clamp(Math.ceil(Math.max(1, value.length) / CHARS_PER_FACET), 1, 3);
+      }
+
+      function splitWordForFacets(value, count) {
+        if (!value) {
+          return Array.from({ length: count }, () => "");
+        }
+        const chunks = [];
+        const baseSize = Math.floor(value.length / count);
+        let remainder = value.length % count;
+        let cursor = 0;
+        for (let index = 0; index < count; index += 1) {
+          const size = baseSize + (remainder > 0 ? 1 : 0);
+          chunks.push(value.slice(cursor, cursor + size));
+          cursor += size;
+          remainder = Math.max(0, remainder - 1);
+        }
+        return chunks;
+      }
+
+      function buildSentenceRows() {
+        sentenceRows = SENTENCE_RING_INDEXES.map((ringIndex) => {
+          const ringFacets = facets
+            .filter((facet) => facet.ringIndex === ringIndex)
+            .sort((a, b) => a.longitude - b.longitude);
+          const startIndex = ringFacets.reduce(
+            (bestIndex, facet, index) =>
+              Math.abs(facet.longitude) <
+              Math.abs(ringFacets[bestIndex].longitude)
+                ? index
+                : bestIndex,
+            0
+          );
+          const ordered = [
+            ...ringFacets.slice(startIndex),
+            ...ringFacets.slice(0, startIndex)
+          ];
+          const startLongitude = ordered[0].longitude;
+          ordered.forEach((facet) => {
+            facet.sentenceOffset =
+              ((facet.longitude - startLongitude) % 360 + 360) % 360;
+          });
+          return ordered;
+        });
+        sentenceRowCapacity = Math.min(
+          ...sentenceRows.map((rowFacets) => rowFacets.length)
+        );
+      }
+
+      function allocateFacetWords(entries) {
+        const placements = [];
+        activeLineFull = false;
+        const lineEnds = [...lineBreaks, words.length];
+        const firstVisibleLine = Math.max(
+          0,
+          lineEnds.length - sentenceRows.length
+        );
+        const visibleLineEnds = lineEnds.slice(firstVisibleLine);
+        let entryCursor = firstVisibleLine
+          ? lineEnds[firstVisibleLine - 1]
+          : 0;
+
+        visibleLineEnds.forEach((lineEnd, rowIndex) => {
+          const rowFacets = sentenceRows[rowIndex];
+          if (!rowFacets) {
+            return;
+          }
+          const rowLimit = sentenceRowCapacity || rowFacets.length;
+          let tileCursor = 0;
+
+          while (entryCursor < lineEnd) {
+            const entry = entries[entryCursor];
+            const tileCount = facetCountForWord(entry.value);
+            if (tileCursor + tileCount > rowLimit) {
+              activeLineFull =
+                rowIndex === visibleLineEnds.length - 1;
+              return;
+            }
+            const ownedFacets = rowFacets.slice(
+              tileCursor,
+              tileCursor + tileCount
+            );
+            placements.push({
+              ...entry,
+              index: entryCursor,
+              row: rowIndex,
+              logicalRow: firstVisibleLine + rowIndex,
+              facets: ownedFacets,
+              tileCount,
+              latitude: ownedFacets[0].latitude,
+              centerOffset:
+                ownedFacets.reduce(
+                  (sum, facet) => sum + facet.sentenceOffset,
+                  0
+                ) / ownedFacets.length
+            });
+            tileCursor += tileCount;
+            entryCursor += 1;
+          }
+
+          const draft = entries[entryCursor];
+          if (
+            rowIndex === visibleLineEnds.length - 1 &&
+            draft &&
+            draft.draft
+          ) {
+            const tileCount = facetCountForWord(draft.value);
+            if (tileCursor + tileCount > rowLimit) {
+              activeLineFull = true;
+              return;
+            }
+            const ownedFacets = rowFacets.slice(
+              tileCursor,
+              tileCursor + tileCount
+            );
+            placements.push({
+              ...draft,
+              index: entryCursor,
+              row: rowIndex,
+              logicalRow: firstVisibleLine + rowIndex,
+              facets: ownedFacets,
+              tileCount,
+              latitude: ownedFacets[0].latitude,
+              centerOffset:
+                ownedFacets.reduce(
+                  (sum, facet) => sum + facet.sentenceOffset,
+                  0
+                ) / ownedFacets.length
+            });
+            entryCursor += 1;
+          }
+        });
+        return placements;
+      }
+
+      function clearFacetWords() {
+        facets.forEach((facet) => {
+          facet.element.classList.remove(
+            "tile-owned",
+            "has-word",
+            "is-active",
+            "has-draft",
+            "just-placed",
+            "is-word-multi",
+            "word-start",
+            "word-middle",
+            "word-end",
+            "word-label-anchor",
+            "merge-anchor",
+            "merge-continuation",
+            "merge-left-edge",
+            "merge-right-edge"
+          );
+          facet.element.style.removeProperty("--word-tone");
+          facet.element.style.removeProperty("--facet-scale-x");
+          facet.element.style.removeProperty("--word-span");
+          facet.element.style.removeProperty("--word-center-shift");
+          facet.element.querySelectorAll(".facet-word").forEach((word) => word.remove());
+        });
+      }
+
+      function renderFacetPlacement(placement) {
+        const printableValue = placement.value.toUpperCase();
+        const labelAnchorIndex = Math.floor((placement.tileCount - 1) / 2);
+        const centerShift =
+          ((placement.tileCount - 1) / 2 - labelAnchorIndex) * 100;
+        const sharedTone = facetTones[1];
+
+        placement.facets.forEach((facet, partIndex) => {
+          const element = facet.element;
+          const isFirst = partIndex === 0;
+          const isLast = partIndex === placement.facets.length - 1;
+
+          element.classList.add("tile-owned");
+          element.classList.add(
+            isFirst ? "word-start" : isLast ? "word-end" : "word-middle"
+          );
+          if (isFirst && isLast) {
+            element.classList.add("word-end");
+          }
+          if (placement.tileCount > 1) {
+            element.classList.add("is-word-multi");
+          }
+          element.style.setProperty("--word-tone", sharedTone);
+
+          if (partIndex === labelAnchorIndex) {
+            element.classList.add("word-label-anchor");
+            element.style.setProperty("--word-span", placement.tileCount);
+            element.style.setProperty(
+              "--word-center-shift",
+              `${centerShift}%`
+            );
+          }
+
+          if (placement.draft) {
+            element.classList.add("is-active");
+            if (placement.value) {
+              element.classList.add("has-draft");
+            }
+          } else {
+            element.classList.add("has-word");
+            if (placement.order === flashIndex) {
+              element.classList.add("just-placed");
+            }
+          }
+
+          if (partIndex === labelAnchorIndex && printableValue) {
+            const label = document.createElement("span");
+            label.className = "facet-word";
+            label.textContent = printableValue;
+            element.appendChild(label);
+          }
+        });
+      }
+
+      function updateTracking(placement) {
+        if (!placement) {
+          currentRotationX = 0;
+          currentRotationY = lineRotationBase;
+          ball.style.setProperty("--ball-x", "0deg");
+          ball.style.setProperty("--ball-y", `${currentRotationY}deg`);
+          return;
+        }
+        currentRotationX = clamp(placement.latitude, -38, 38);
+        currentRotationY = lineRotationBase - placement.centerOffset;
+        ball.style.setProperty(
+          "--ball-x",
+          `${currentRotationX.toFixed(2)}deg`
+        );
+        ball.style.setProperty(
+          "--ball-y",
+          `${currentRotationY.toFixed(2)}deg`
+        );
+      }
+
+      function scheduleTracking(placement) {
+        window.cancelAnimationFrame(trackingFrame);
+        trackingFrame = window.requestAnimationFrame(() => {
+          trackingFrame = window.requestAnimationFrame(() => {
+            trackingFrame = 0;
+            updateTracking(placement);
+          });
+        });
+      }
+
+      function endWheelTurn() {
+        window.clearTimeout(wheelTimer);
+        wheelTimer = 0;
+        if (!isLineTransitioning) {
+          ball.style.removeProperty("--ball-turn-duration");
+        }
+      }
+
+      function renderSurface({ deferTracking = false } = {}) {
+        const entries = words.map((value, index) => ({
+          value,
+          committed: true,
+          order: index
+        }));
+        entries.push({
+          value: wordInput.value.slice(0, 12),
+          draft: true,
+          order: words.length
+        });
+
+        clearFacetWords();
+        surfaceWords.replaceChildren();
+        currentLayout = allocateFacetWords(entries);
+        currentLayout.forEach(renderFacetPlacement);
+        animateNextRail = false;
+        const activePlacement = currentLayout[currentLayout.length - 1];
+        if (deferTracking) {
+          void ball.offsetWidth;
+          scheduleTracking(activePlacement);
+        } else {
+          window.cancelAnimationFrame(trackingFrame);
+          trackingFrame = 0;
+          updateTracking(activePlacement);
+        }
+      }
+
+      function buildFacets() {
+        ringConfig.forEach((ring, ringIndex) => {
+          const longitudeStep = 360 / ring.count;
+          const longitudeOffset = ringIndex % 2 === 0 ? longitudeStep / 2 : 0;
+
+          for (let position = 0; position < ring.count; position += 1) {
+            const longitude = -180 + longitudeOffset + position * longitudeStep;
+            const materialPattern = [0, 1, 2, 1, 0, 2, 1, 0, 2];
+            const toneIndex =
+              materialPattern[(ringIndex * 13 + position * 7) % materialPattern.length];
+            const element = document.createElement("span");
+            element.className = "facet";
+            element.setAttribute("aria-hidden", "true");
+            element.style.setProperty("--facet-tone", facetTones[toneIndex]);
+            if (darkToneIndexes.has(toneIndex)) {
+              element.classList.add("is-dark");
+            }
+            ball.appendChild(element);
+            facets.push({
+              element,
+              ringIndex,
+              position,
+              latitude: ring.latitude,
+              longitude,
+              ringCount: ring.count,
+              tone: facetTones[toneIndex]
+            });
+          }
+        });
+      }
+
+      function positionFacets() {
+        const ballSize = ball.clientWidth;
+        const radius = ballSize * 0.405;
+        const latitudeStepRadians = radians(LATITUDE_STEP);
+        const facetHeight = Math.max(12, radius * latitudeStepRadians * 0.965);
+
+        facets.forEach((facet) => {
+          const latitudeRadians = radians(Math.abs(facet.latitude));
+          const ringCircumference =
+            2 * Math.PI * radius * Math.cos(latitudeRadians);
+          const facetStepWidth = Math.max(12, ringCircumference / facet.ringCount);
+          const facetWidth = facetStepWidth * 0.965;
+          facet.element.style.width = `${facetWidth}px`;
+          facet.element.style.height = `${facetHeight}px`;
+          facet.element.style.marginLeft = `${facetWidth / -2}px`;
+          facet.element.style.marginTop = `${facetHeight / -2}px`;
+          facet.element.style.setProperty(
+            "--facet-transform",
+            `rotateY(${facet.longitude}deg) rotateX(${-facet.latitude}deg) translateZ(${radius}px)`
+          );
+        });
+      }
+
+      function formatCount(value) {
+        return String(value).padStart(2, "0");
+      }
+
+      function setFieldMessage(message, isError = false) {
+        window.clearTimeout(messageTimer);
+        fieldMessage.textContent = message;
+        fieldMessage.classList.toggle("is-error", isError);
+        wordInput.setAttribute("aria-invalid", isError ? "true" : "false");
+      }
+
+      function setTemporaryMessage(message, isError = false) {
+        setFieldMessage(message, isError);
+        messageTimer = window.setTimeout(() => {
+          setFieldMessage("space places the next word in reading order");
+        }, 1400);
+      }
+
+      function announce(message) {
+        liveRegion.textContent = "";
+        window.setTimeout(() => {
+          liveRegion.textContent = message;
+        }, 20);
+      }
+
+      function pulseKey(key) {
+        playInteractionSound(key);
+        const label =
+          key === " " ? "space" :
+          key === "Backspace" ? "⌫" :
+          key === "Escape" ? "esc" :
+          key === "Enter" ? "↵" :
+          key.length === 1 ? key.toLowerCase() :
+          "key";
+        keyEcho.textContent = label;
+        keyEcho.classList.remove("is-hit");
+        void keyEcho.offsetWidth;
+        keyEcho.classList.add("is-hit");
+      }
+
+      function renderWordList() {
+        wordList.replaceChildren();
+        emptyState.hidden = words.length > 0;
+        wordList.hidden = words.length === 0;
+
+        words.forEach((entry, index) => {
+          const item = document.createElement("li");
+          const number = document.createElement("span");
+          const text = document.createElement("span");
+          const marker = document.createElement("span");
+          item.className = "word-item";
+          number.className = "word-index";
+          number.textContent = formatCount(index + 1);
+          text.className = "word-text";
+          text.textContent = entry;
+          marker.className = "word-marker";
+          marker.setAttribute("aria-hidden", "true");
+          item.append(number, text, marker);
+          wordList.appendChild(item);
+        });
+
+        if (words.length > 0) {
+          wordList.scrollLeft = wordList.scrollWidth;
+        }
+      }
+
+      function getActivePlacement() {
+        return currentLayout[currentLayout.length - 1] || null;
+      }
+
+      function updateInterface() {
+        const countText = `${formatCount(words.length)} words`;
+        const hasDraft = Boolean(wordInput.value);
+        const activePlacement = getActivePlacement();
+        const activeLine = lineBreaks.length + 1;
+
+        topCount.textContent = `${words.length} words set`;
+        ledgerCount.textContent = countText;
+        resetButton.disabled = words.length === 0 && !hasDraft;
+        wordInput.disabled = isLineTransitioning;
+        submitButton.disabled = isLineTransitioning;
+        feelButtons.forEach((button) => {
+          button.disabled = isLineTransitioning;
+        });
+        tryButtons.forEach((button) => {
+          button.disabled = isLineTransitioning;
+        });
+        ball.setAttribute(
+          "aria-label",
+          `A disco ball displaying ${words.length} committed words across ordered sentence lines`
+        );
+        composerStatus.classList.remove("is-busy");
+        composerStatus.classList.remove("is-complete");
+
+        if (isLineTransitioning) {
+          facetReadout.textContent = `line ${formatCount(activeLine)} complete`;
+          stageAction.textContent =
+            feelMode === "flow" ? "finishing the glide" : "finishing the turn";
+          stageNote.textContent =
+            feelMode === "flow"
+              ? "smooth revolution · then lift"
+              : "full revolution · then lift";
+          composerStatus.classList.add("is-busy");
+          composerStatus.textContent = "advancing line";
+          slotMeta.textContent = `${feelMode} · next center ring`;
+          submitLabel.textContent = "moving line";
+          setFieldMessage("finishing this ring before the next line");
+        } else {
+          facetReadout.textContent =
+            `line ${formatCount(activeLine)} · word ${formatCount(words.length + 1)}`;
+          stageAction.textContent = activeLineFull
+            ? "next word wraps automatically"
+            : hasDraft
+              ? feelMode === "flow"
+                ? "gliding on the center ring"
+                : "printing on the center ring"
+              : feelMode === "flow"
+                ? "flow ready — just type"
+                : "ready — just type";
+          stageNote.textContent = activeLineFull
+            ? feelMode === "flow"
+              ? "space glides · finish the ring · continue above"
+              : "space sets · finish the turn · continue above"
+            : hasDraft
+              ? feelMode === "flow"
+                ? `word ${formatCount(words.length + 1)} glides with line ${activeLine}`
+                : `word ${formatCount(words.length + 1)} turns with line ${activeLine}`
+              : feelMode === "flow"
+                ? "space glides · enter lifts the finished line"
+                : "space sets · enter lifts the finished line";
+          composerStatus.textContent = hasDraft
+            ? feelMode === "flow"
+              ? "flowing"
+              : "typing"
+            : "ready — just type";
+          slotMeta.textContent = `${feelMode} · line ${activeLine} · unlimited`;
+          submitLabel.textContent =
+            feelMode === "flow" ? "space to glide" : "space to set";
+          if (!fieldMessage.classList.contains("is-error")) {
+            setFieldMessage(
+              activeLineFull
+                ? "press space — this word wraps automatically"
+                : hasDraft
+                ? "press space to print this word on the ball"
+                : "type on the center ring · enter starts the next line"
+            );
+          }
+        }
+      }
+
+      function syncDraft() {
+        if (isLineTransitioning) {
+          return;
+        }
+        endWheelTurn();
+        wordInput.value = wordInput.value.slice(0, 12);
+        renderSurface();
+        updateInterface();
+      }
+
+      function validateWord(rawValue) {
+        const value = rawValue.trim();
+        if (!value) {
+          return {
+            valid: false,
+            message: "Type one word before placing it."
+          };
+        }
+        if (/\s/.test(value)) {
+          return {
+            valid: false,
+            message: "Use one word only. Space places it on the sentence."
+          };
+        }
+        if (value.length > 12) {
+          return {
+            valid: false,
+            message: "Keep the word to 12 characters so it remains readable."
+          };
+        }
+        return { valid: true, value };
+      }
+
+      function commitWord(value) {
+        const draftPlacement = currentLayout.find((placement) => placement.draft);
+        if (!draftPlacement) {
+          setFieldMessage("wrapping this word onto the next center ring");
+          announce(`Wrapping ${value} onto the next sentence line.`);
+          advanceLine({ pendingWord: value, automatic: true });
+          return;
+        }
+        const currentNumber = words.length + 1;
+        words.push(value);
+        flashIndex = words.length - 1;
+        wordInput.value = "";
+        endWheelTurn();
+        renderSurface({ deferTracking: true });
+        renderWordList();
+        updateInterface();
+
+        const committedPlacement = currentLayout.find(
+          (placement) =>
+            placement.committed && placement.order === currentNumber - 1
+        );
+        const logicalLineNumber = committedPlacement
+          ? committedPlacement.logicalRow + 1
+          : lineBreaks.length + 1;
+        announce(`${value} set as word ${currentNumber} on sentence line ${logicalLineNumber}.`);
+
+        window.clearTimeout(turnTimer);
+        wordInput.focus({ preventScroll: true });
+        if (activeLineFull) {
+          flashIndex = -1;
+          advanceLine({ automatic: true });
+        } else {
+          turnTimer = window.setTimeout(() => {
+            flashIndex = -1;
+            renderSurface();
+          }, 320);
+        }
+      }
+
+      function advanceLine({ pendingWord = "", automatic = false } = {}) {
+        if (isLineTransitioning) {
+          return;
+        }
+        if (!automatic && wordInput.value.trim()) {
+          setTemporaryMessage("press space to commit the draft before enter", true);
+          announce("Press Space to commit the draft before starting a new line.");
+          return;
+        }
+        const activeLineStart = lineBreaks.length
+          ? lineBreaks[lineBreaks.length - 1]
+          : 0;
+        if (words.length <= activeLineStart) {
+          setTemporaryMessage("add at least one word before starting a new line", true);
+          announce("Add at least one word before starting a new line.");
+          return;
+        }
+        endWheelTurn();
+        window.clearTimeout(turnTimer);
+        window.cancelAnimationFrame(trackingFrame);
+        turnTimer = 0;
+        trackingFrame = 0;
+        flashIndex = -1;
+        isLineTransitioning = true;
+        updateInterface();
+        const turnDuration = reducedMotion.matches
+          ? 1
+          : feelMode === "flow"
+            ? 760
+            : 400;
+        const liftDuration = reducedMotion.matches
+          ? 1
+          : feelMode === "flow"
+            ? 620
+            : 360;
+        const completedCycle = lineRotationBase - 360;
+        currentRotationY = completedCycle;
+        ball.style.setProperty("--ball-turn-duration", `${turnDuration}ms`);
+        ball.style.setProperty("--ball-y", `${completedCycle.toFixed(2)}deg`);
+
+        window.clearTimeout(lineTurnTimer);
+        window.clearTimeout(lineLiftTimer);
+        lineTurnTimer = window.setTimeout(() => {
+          lineBreaks.push(words.length);
+          lineRotationBase = completedCycle;
+          ball.style.setProperty("--ball-turn-duration", `${liftDuration}ms`);
+          renderSurface();
+          renderWordList();
+
+          lineLiftTimer = window.setTimeout(() => {
+            isLineTransitioning = false;
+            ball.style.removeProperty("--ball-turn-duration");
+            if (pendingWord) {
+              commitWord(pendingWord);
+            } else {
+              updateInterface();
+              announce(
+                automatic
+                  ? `Line ${lineBreaks.length} wrapped automatically. Line ${lineBreaks.length + 1} is centered.`
+                  : `Line ${lineBreaks.length} moved up. Line ${lineBreaks.length + 1} is centered.`
+              );
+              wordInput.focus({ preventScroll: true });
+            }
+          }, liftDuration + 24);
+        }, turnDuration + 24);
+      }
+
+      function resetBall() {
+        window.clearTimeout(lineTurnTimer);
+        window.clearTimeout(lineLiftTimer);
+        window.clearTimeout(wheelTimer);
+        window.cancelAnimationFrame(trackingFrame);
+        wheelTimer = 0;
+        trackingFrame = 0;
+        words.length = 0;
+        lineBreaks.length = 0;
+        flashIndex = -1;
+        isLineTransitioning = false;
+        activeLineFull = false;
+        currentRotationX = 0;
+        currentRotationY = 0;
+        lineRotationBase = 0;
+        endFlowPhrase();
+        ball.style.removeProperty("--ball-turn-duration");
+        wordInput.value = "";
+        setFieldMessage("type on the center ring · enter starts the next line");
+        renderSurface();
+        renderWordList();
+        updateInterface();
+        announce("The disco ball is clear. Sentence line 1 is ready.");
+        wordInput.focus({ preventScroll: true });
+      }
+
+      wordForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        setTemporaryMessage("use space to place the word");
+        announce("Use Space to place the word.");
+      });
+
+      wordInput.addEventListener("keydown", (event) => {
+        if (isComposing || event.isComposing) {
+          return;
+        }
+        pulseKey(event.key);
+
+        if (event.key === " ") {
+          event.preventDefault();
+          const result = validateWord(wordInput.value);
+          if (!result.valid) {
+            setTemporaryMessage("type a word before pressing space", true);
+            announce("Type a word before pressing space.");
+            return;
+          }
+          commitWord(result.value);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          advanceLine();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          wordInput.value = "";
+          syncDraft();
+          setTemporaryMessage("draft cleared");
+          announce("Current draft cleared.");
+        }
+      });
+
+      wordInput.addEventListener("input", () => {
+        if (isComposing) {
+          return;
+        }
+        if (/\s/.test(wordInput.value)) {
+          const value = wordInput.value.split(/\s+/)[0];
+          wordInput.value = value;
+          syncDraft();
+          if (value) {
+            pulseKey(" ");
+            commitWord(value);
+          }
+          return;
+        }
+        if (fieldMessage.classList.contains("is-error")) {
+          setFieldMessage("space places the next word in reading order");
+        }
+        syncDraft();
+      });
+
+      wordInput.addEventListener("compositionstart", () => {
+        isComposing = true;
+      });
+
+      wordInput.addEventListener("compositionend", () => {
+        isComposing = false;
+        syncDraft();
+      });
+
+      wordInput.addEventListener("focus", () => {
+        document.body.classList.add("has-typing-focus");
+      });
+
+      wordInput.addEventListener("blur", () => {
+        document.body.classList.remove("has-typing-focus");
+      });
+
+      ballWrap.addEventListener(
+        "wheel",
+        (event) => {
+          if (isLineTransitioning || resetDialog.open) {
+            return;
+          }
+          const rawDelta =
+            Math.abs(event.deltaX) > Math.abs(event.deltaY)
+              ? event.deltaX
+              : event.deltaY;
+          if (!Number.isFinite(rawDelta) || Math.abs(rawDelta) < 0.1) {
+            return;
+          }
+
+          event.preventDefault();
+          window.cancelAnimationFrame(trackingFrame);
+          trackingFrame = 0;
+          window.clearTimeout(wheelTimer);
+
+          const deltaUnit =
+            event.deltaMode === 1
+              ? 16
+              : event.deltaMode === 2
+                ? window.innerWidth
+                : 1;
+          const turnDelta = clamp(rawDelta * deltaUnit * 0.12, -28, 28);
+          currentRotationY -= turnDelta;
+          ball.style.setProperty(
+            "--ball-turn-duration",
+            reducedMotion.matches ? "1ms" : "120ms"
+          );
+          ball.style.setProperty(
+            "--ball-y",
+            `${currentRotationY.toFixed(2)}deg`
+          );
+
+          wheelTimer = window.setTimeout(() => {
+            wheelTimer = 0;
+            ball.style.removeProperty("--ball-turn-duration");
+          }, reducedMotion.matches ? 8 : 150);
+        },
+        { passive: false }
+      );
+
+      feelButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          applyFeelMode(button.dataset.feelMode, {
+            preview: true
+          });
+          wordInput.focus({ preventScroll: true });
+        });
+      });
+
+      soundToggle.addEventListener("click", () => {
+        soundMuted = !soundMuted;
+        rememberSetting(MUTE_STORAGE_KEY, soundMuted);
+        updateSoundControl();
+
+        if (audioContext && masterGain) {
+          const now = audioContext.currentTime;
+          const current = Math.max(0.0001, masterGain.gain.value);
+          masterGain.gain.cancelScheduledValues(now);
+          masterGain.gain.setValueAtTime(current, now);
+          masterGain.gain.setTargetAtTime(
+            soundMuted ? 0.0001 : 0.72,
+            now,
+            0.035
+          );
+        }
+
+        if (soundMuted) {
+          endFlowPhrase();
+          announce("Sound muted.");
+        } else {
+          announce("Sound on.");
+          if (feelMode === "flow") {
+            playSample("soft", 0.1, 1);
+            void ensureAudio().then((ready) => {
+              if (ready && !soundMuted) {
+                startFlowTone(293.66, 0.02, 0.3);
+              }
+            });
+          } else {
+            playSample("key", 0.19, 1);
+          }
+        }
+        wordInput.focus({ preventScroll: true });
+      });
+
+      tryButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          wordInput.value = button.dataset.word || "";
+          syncDraft();
+          wordInput.focus();
+        });
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (
+          resetDialog.open ||
+          wordInput.disabled ||
+          document.activeElement === wordInput ||
+          document.activeElement instanceof HTMLButtonElement ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey
+        ) {
+          return;
+        }
+
+        if (
+          event.key === " " ||
+          event.key === "Enter" ||
+          event.key === "Backspace" ||
+          event.key === "Escape" ||
+          event.key.length === 1
+        ) {
+          event.preventDefault();
+          wordInput.focus({ preventScroll: true });
+
+          if (event.key === " ") {
+            pulseKey(" ");
+            const result = validateWord(wordInput.value);
+            if (result.valid) {
+              commitWord(result.value);
+            } else {
+              setTemporaryMessage("type a word before pressing space", true);
+            }
+          } else if (event.key === "Enter") {
+            pulseKey("Enter");
+            advanceLine();
+          } else if (event.key === "Backspace") {
+            pulseKey(event.key);
+            wordInput.value = wordInput.value.slice(0, -1);
+            syncDraft();
+          } else if (event.key === "Escape") {
+            pulseKey(event.key);
+            wordInput.value = "";
+            syncDraft();
+          } else if (wordInput.value.length < 12) {
+            pulseKey(event.key);
+            wordInput.value += event.key;
+            syncDraft();
+          }
+        }
+      });
+
+      document.querySelector(".stage").addEventListener("pointerdown", (event) => {
+        if (event.target.closest("button, input, [role='button']")) {
+          return;
+        }
+        if (!isLineTransitioning) {
+          wordInput.focus({ preventScroll: true });
+        }
+      });
+
+      resetButton.addEventListener("click", () => {
+        if (typeof resetDialog.showModal === "function") {
+          resetDialog.showModal();
+          cancelReset.focus();
+        } else if (window.confirm("Clear every word from the disco ball?")) {
+          resetBall();
+        }
+      });
+
+      cancelReset.addEventListener("click", () => {
+        resetDialog.close();
+        resetButton.focus();
+      });
+
+      confirmReset.addEventListener("click", () => {
+        resetDialog.close();
+        resetBall();
+      });
+
+      resetDialog.addEventListener("click", (event) => {
+        const bounds = resetDialog.getBoundingClientRect();
+        const inside =
+          event.clientX >= bounds.left &&
+          event.clientX <= bounds.right &&
+          event.clientY >= bounds.top &&
+          event.clientY <= bounds.bottom;
+        if (!inside) {
+          resetDialog.close();
+          resetButton.focus();
+        }
+      });
+
+      window.addEventListener("resize", () => {
+        window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(() => {
+          positionFacets();
+          renderSurface();
+        });
+      });
+
+      primeAudioFiles();
+      applyFeelMode(feelMode, {
+        announceChange: false,
+        refresh: false
+      });
+      updateSoundControl();
+      buildFacets();
+      buildSentenceRows();
+      positionFacets();
+      renderSurface();
+      renderWordList();
+      updateInterface();
+      window.setTimeout(() => {
+        wordInput.focus({ preventScroll: true });
+      }, 0);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# Local tooling and session state
+.claude/
+.insta/
+.od-skills/
+.od-frames/
+.open-design/
+
+# Generated design-session references
+*.artifact.json
+image*.png
+
+# OS files
+.DS_Store
